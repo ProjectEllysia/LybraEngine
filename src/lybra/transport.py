@@ -257,6 +257,7 @@ class AsyncConnectScanner:
         ports: Iterable[int],
         cancel_check: Optional[Callable[[], bool]] = None,
         deadline: Optional[float] = None,
+        on_progress: Optional[Callable[[int, int], None]] = None,
     ) -> PortSweep:
         """Barrer los puertos de un host y clasificar cómo terminó cada intento.
 
@@ -275,10 +276,14 @@ class AsyncConnectScanner:
                 2 s por defecto). Ese rebase está acotado, que es toda la
                 diferencia con no tener presupuesto: sin él, un barrido ancho
                 contra un objetivo que filtra tráfico dura lo que dure.
+            on_progress: Callable opcional ``(probados, total)``, llamado tras
+                cada sonda terminada. Es lo que deja al job publicar un
+                porcentaje mientras barre, que es la fase más larga del escaneo.
 
         Returns:
             El :class:`PortSweep` con cada puerto en la lista de su desenlace.
         """
+        ports = list(ports)
         semaphore = asyncio.Semaphore(self._concurrency)
         outcomes: Dict[int, PortOutcome] = {}
         was_cancelled = False
@@ -302,6 +307,8 @@ class AsyncConnectScanner:
                     was_truncated = True
                     return
                 outcomes[port] = await self._probe_outcome(host, port)
+                if on_progress is not None:
+                    on_progress(len(outcomes), len(ports))
 
         await asyncio.gather(*(probe(port) for port in ports))
 
@@ -382,6 +389,7 @@ def sweep_ports_sync(
     opener: Optional[Callable] = None,
     cancel_check: Optional[Callable[[], bool]] = None,
     budget_seconds: Optional[float] = None,
+    on_progress: Optional[Callable[[int, int], None]] = None,
 ) -> PortSweep:
     """Ejecutar un barrido completo síncronamente, en un bucle de eventos propio.
 
@@ -396,7 +404,9 @@ def sweep_ports_sync(
         opener: Abridor de conexión inyectable (ver :class:`AsyncConnectScanner`).
         cancel_check: Callable de cancelación opcional.
         budget_seconds: Presupuesto de reloj para el barrido entero. ``None``
-            (por defecto) lo deja sin límite, que es como se comportaba antes.
+            (por defecto) lo deja sin límite.
+        on_progress: Callable opcional ``(probados, total)``; ver
+            :meth:`AsyncConnectScanner.sweep`.
 
     Returns:
         El :class:`PortSweep` del barrido.
@@ -404,7 +414,8 @@ def sweep_ports_sync(
     port_list = list(ports) if ports is not None else list(DEFAULT_PORTS)
     scanner = AsyncConnectScanner(concurrency=concurrency, timeout=timeout, opener=opener)
     deadline = time.monotonic() + budget_seconds if budget_seconds is not None else None
-    return asyncio.run(scanner.sweep(host, port_list, cancel_check=cancel_check, deadline=deadline))
+    return asyncio.run(scanner.sweep(host, port_list, cancel_check=cancel_check, deadline=deadline,
+                                     on_progress=on_progress))
 
 
 def sweep_with_retries(
@@ -418,6 +429,7 @@ def sweep_with_retries(
     retry_delay: float = 2.0,
     sleeper: Callable[[float], None] = time.sleep,
     budget_seconds: Optional[float] = None,
+    on_progress: Optional[Callable[[int, int], None]] = None,
 ) -> PortSweep:
     """Barrer los puertos de un host, reintentando si el barrido sale mudo.
 
@@ -448,6 +460,9 @@ def sweep_with_retries(
         sleeper: Espera inyectable, para que un test no tenga que dormirla.
         budget_seconds: Presupuesto de reloj para el descubrimiento entero,
             reintentos y esperas incluidos. ``None`` lo deja sin límite.
+        on_progress: Callable opcional ``(probados, total)``; ver
+            :meth:`AsyncConnectScanner.sweep`. Un reintento vuelve a contar
+            desde cero: quien publique el porcentaje no debe dejarlo retroceder.
 
     Returns:
         El :class:`PortSweep` del último intento.
@@ -458,7 +473,7 @@ def sweep_with_retries(
         return None if deadline is None else deadline - time.monotonic()
 
     sweep = sweep_ports_sync(
-        host, ports, concurrency, timeout, opener, cancel_check, remaining_budget())
+        host, ports, concurrency, timeout, opener, cancel_check, remaining_budget(), on_progress)
     attempts_left = max(0, retries)
     while sweep.is_blocked and attempts_left > 0:
         # El reintento sale del mismo presupuesto que el barrido: si no queda
@@ -472,7 +487,8 @@ def sweep_with_retries(
         if retry_delay > 0:
             sleeper(retry_delay)
         sweep = sweep_ports_sync(
-            host, ports, concurrency, timeout, opener, cancel_check, remaining_budget())
+            host, ports, concurrency, timeout, opener, cancel_check, remaining_budget(),
+            on_progress)
         attempts_left -= 1
 
     if sweep.was_truncated:

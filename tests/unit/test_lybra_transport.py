@@ -106,6 +106,16 @@ def test_sweep_classifies_each_outcome_apart():
     assert not sweep.is_blocked
 
 
+def test_sweep_reports_each_finished_probe_against_the_total():
+    async def opener(host, port):
+        raise ConnectionRefusedError("closed")
+
+    reported = []
+    sweep_ports_sync("10.0.0.5", [21, 22, 80, 443], concurrency=1, opener=opener,
+                     on_progress=lambda done, total: reported.append((done, total)))
+    assert reported == [(1, 4), (2, 4), (3, 4), (4, 4)]
+
+
 def test_sweep_where_every_port_times_out_is_blocked():
     ports = list(range(1000, 1000 + 16))
     sweep = sweep_ports_sync("10.0.0.5", ports, timeout=0.01,
