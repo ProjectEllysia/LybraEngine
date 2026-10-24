@@ -658,6 +658,72 @@ def parse_censys_host(payload: Any, address: str,
     return observations
 
 
+def parse_host_names(source: OsintSource, payload: Any) -> List[str]:
+    """Los nombres de dominio que una fuente de direcciones asocia a una IP.
+
+    Es el «DNS inverso pasivo»: los nombres que la fuente vio apuntando a la
+    dirección o servidos desde ella. Shodan los da en ``hostnames`` y
+    ``domains``; Censys en ``dns.names`` (registros directos hacia la IP) y
+    ``dns.reverse_dns.names``. No se validan aquí: quien los usa decide cuáles
+    resuelven de verdad a la IP y cuáles puede auditar.
+
+    Args:
+        source: ``OsintSource.SHODAN`` u ``OsintSource.CENSYS``.
+        payload: La ficha de la dirección ya decodificada (la misma que lee
+            :func:`parse_shodan_host` o :func:`parse_censys_host`), o ``None``
+            si la fuente no sabe nada de ella.
+
+    Returns:
+        List[str]: Los nombres tal como los da la fuente, sin normalizar;
+            vacía si la ficha no trae ninguno.
+    """
+    if not isinstance(payload, dict):
+        return []
+    if source is OsintSource.SHODAN:
+        raw_names = list(payload.get("hostnames") or []) + list(payload.get("domains") or [])
+    else:
+        result = payload.get("result") if isinstance(payload.get("result"), dict) else payload
+        dns = result.get("dns") if isinstance(result.get("dns"), dict) else {}
+        reverse_dns = dns.get("reverse_dns") if isinstance(dns.get("reverse_dns"), dict) else {}
+        raw_names = list(dns.get("names") or []) + list(reverse_dns.get("names") or [])
+    return [name for name in raw_names if isinstance(name, str)]
+
+
+def collect_host_names(
+    address: str,
+    fetch: SourceFetcher,
+    source_settings: Mapping[OsintSource, SourceSetting],
+) -> List[str]:
+    """Pregunta a Shodan y Censys qué nombres de dominio conocen para una IP.
+
+    Una dirección privada no se consulta (ninguna fuente pública sabe nada de
+    ella, y preguntar revelaría la red interna). Una fuente apagada, sin clave
+    o caída simplemente no aporta nombres.
+
+    Args:
+        address: La dirección IP.
+        fetch: El fetcher inyectado (ver :data:`SourceFetcher`).
+        source_settings: Qué fuentes están encendidas y con clave.
+
+    Returns:
+        List[str]: Los nombres, sin repetir y en el orden de
+            :data:`HOST_SOURCES`; vacía si no hay ninguno.
+    """
+    if is_private_target(address):
+        return []
+    names: List[str] = []
+    for source in HOST_SOURCES:
+        if _usable_status(source, source_settings) is not None:
+            continue
+        try:
+            document = fetch(source, address)
+        except Exception:  # pylint: disable=broad-exception-caught
+            # Una fuente de terceros caída sólo deja de aportar nombres.
+            continue
+        names.extend(parse_host_names(source, document.payload))
+    return list(dict.fromkeys(names))
+
+
 _HOST_PARSERS: Dict[OsintSource, Callable[[Any, str, datetime], List[ServiceObservation]]] = {
     OsintSource.SHODAN: parse_shodan_host,
     OsintSource.CENSYS: parse_censys_host,
