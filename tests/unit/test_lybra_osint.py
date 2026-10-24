@@ -25,6 +25,7 @@ from src.modules.features.themis.lybra import (
     SourceOutcome,
     SourceSetting,
     assess_dns_hygiene,
+    collect_host_names,
     collect_host_observations,
     collect_passive_intelligence,
     finding_to_osint_json,
@@ -573,3 +574,29 @@ def test_the_age_is_never_negative_for_future_dated_data():
     observations, _ = collect_host_observations(["93.184.216.34"], fetch, settings)
 
     assert build_exposed_service_finding(observations[0], NOW)["_provenance"]["ageDays"] == 0
+
+
+def test_the_names_a_source_knows_for_an_ip_come_from_shodan_and_censys():
+    """El «reverse IP» pasivo: Shodan da ``hostnames``/``domains`` y Censys
+    los registros directos y el PTR; una fuente caída o apagada no aporta nada."""
+    shodan = {**SHODAN_PAYLOAD, "hostnames": ["www.example.com"], "domains": ["example.com"]}
+    censys = {"result": {"dns": {"names": ["shop.example.com", "www.example.com"],
+                                 "reverse_dns": {"names": ["ptr.hosting.test"]}}}}
+    enabled = SourceSetting(is_enabled=True, has_credentials=True)
+    settings = {OsintSource.SHODAN: enabled, OsintSource.CENSYS: enabled}
+
+    names = collect_host_names("93.184.216.34", _FakeSources({OsintSource.SHODAN: shodan,
+                                                              OsintSource.CENSYS: censys}), settings)
+    assert names == ["www.example.com", "example.com", "shop.example.com", "ptr.hosting.test"]
+
+    failing = _FakeSources({OsintSource.CENSYS: censys}, failing={OsintSource.SHODAN})
+    assert collect_host_names("93.184.216.34", failing, settings)[0] == "shop.example.com"
+    assert collect_host_names("93.184.216.34", _FakeSources({OsintSource.SHODAN: shodan}), {}) == []
+
+
+def test_a_private_ip_is_never_asked_about():
+    fetch = _FakeSources()
+    settings = {OsintSource.SHODAN: SourceSetting(is_enabled=True, has_credentials=True)}
+
+    assert collect_host_names("10.0.0.5", fetch, settings) == []
+    assert fetch.calls == []
