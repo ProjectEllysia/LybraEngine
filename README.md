@@ -10,8 +10,8 @@ aplicación puede integrar.
 
 ## Estado
 
-En construcción. Hoy el repositorio contiene la **capa pura** del motor, sin
-efectos de red fuera de las sondas inyectables:
+En construcción. Hoy el repositorio contiene el motor completo como librería:
+cada capa de detección y el orquestador que las encadena en un escaneo.
 
 | Módulo | Qué hace |
 |---|---|
@@ -20,16 +20,18 @@ efectos de red fuera de las sondas inyectables:
 | `engine` | Convierte servicios en hallazgos, incluidas las CVE por versión. |
 | `checks`, `script_checks` | Checks activos declarativos que confirman una vulnerabilidad en vez de inferirla. |
 | `kb` | Comparación de versiones y CPE, y lectura de los feeds de NVD, KEV, EPSS y OVAL. |
+| `scanner` | La orquestación de un escaneo: plazo, cancelación, permisos y fases en orden. Devuelve lo que vio sin guardar nada. |
 | `correlation` | Deduplicación y puntuación contextual. |
 | `osint`, `dns_hygiene` | Inteligencia pasiva de un dominio. |
 | `feeds/` | Checks, firmas, alias de productos y catálogos de fin de vida. |
 
 Lo que falta, en orden:
 
-1. La orquestación del escaneo completo, que aún vive en EllysiaServer.
-2. La base de conocimiento propia (SQLite) y su sincronización.
-3. El servicio `lybrad` y la CLI `lybra`.
-4. La librería cliente `lybra-client`.
+1. La base de conocimiento propia (SQLite) y su sincronización. Hasta entonces,
+   la detección por versión necesita que quien integra el motor le pase sus
+   consultas (`ScanPhases.analyze`).
+2. El servicio `lybrad` y la CLI `lybra`, con su imagen de Docker.
+3. La librería cliente `lybra-client`.
 
 El contrato entre el servicio y sus clientes está en
 [`docs/protocolo.md`](docs/protocolo.md).

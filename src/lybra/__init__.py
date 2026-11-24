@@ -28,6 +28,11 @@ them:
     The local knowledge base: a mirror of NVD/KEV/EPSS plus the version and
     CPE logic the matcher relies on.
 
+``scanner``
+    La orquestación de un escaneo: encadena las capas de arriba en orden, con
+    el plazo, la cancelación y los permisos que decide quien llama, y devuelve
+    lo que vio sin guardar nada.
+
 ``correlation``
     Deduplication, lifecycle and contextual scoring: turns per-scan findings
     into vulnerability state on an asset over time.
