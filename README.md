@@ -20,6 +20,9 @@ cada capa de detección y el orquestador que las encadena en un escaneo.
 | `engine` | Convierte servicios en hallazgos, incluidas las CVE por versión. |
 | `checks`, `script_checks` | Checks activos declarativos que confirman una vulnerabilidad en vez de inferirla. |
 | `kb` | Comparación de versiones y CPE, y lectura de los feeds de NVD, KEV, EPSS y OVAL. |
+| `knowledge_base` | La base de conocimiento local en SQLite: CVE con sus reglas de aplicabilidad, KEV, EPSS y avisos de distribución. |
+| `kb_sync` | La sincronización con las fuentes públicas, fuente a fuente y con su estado. |
+| `kb_queries` | Las consultas desde fuera del escaneo (ficha de una CVE, ¿es vulnerable esta versión?, avisos recientes) y las fases de escaneo que usan la base. |
 | `scanner` | La orquestación de un escaneo: plazo, cancelación, permisos y fases en orden. Devuelve lo que vio sin guardar nada. |
 | `correlation` | Deduplicación y puntuación contextual. |
 | `osint`, `dns_hygiene` | Inteligencia pasiva de un dominio. |
@@ -27,11 +30,26 @@ cada capa de detección y el orquestador que las encadena en un escaneo.
 
 Lo que falta, en orden:
 
-1. La base de conocimiento propia (SQLite) y su sincronización. Hasta entonces,
-   la detección por versión necesita que quien integra el motor le pase sus
-   consultas (`ScanPhases.analyze`).
-2. El servicio `lybrad` y la CLI `lybra`, con su imagen de Docker.
-3. La librería cliente `lybra-client`.
+1. El servicio `lybrad` y la CLI `lybra`, con su imagen de Docker.
+2. La librería cliente `lybra-client`.
+
+## Base de conocimiento
+
+La sincronización diaria sólo trae los últimos días de NVD. El primer llenado
+(unas 350 000 CVE) se hace una vez, de una de dos formas:
+
+- desde NVD, con `KnowledgeBaseSync.sync_nvd_backfill` (más de una hora sin
+  clave de API de NVD);
+- copiando la base de una instalación de EllysiaServer, en minutos:
+
+  ```bash
+  .venv/bin/pip install -e '.[ellysia-import]'
+  PGPASSWORD=… .venv/bin/python scripts/import_ellysia_kb.py \
+      --dsn postgresql://usuario@127.0.0.1:15432/Ellysia --output kb.sqlite
+  ```
+
+  El script sólo lee de PostgreSQL y al terminar comprueba que cada tabla
+  tiene las mismas filas y que el motor responde igual en las dos bases.
 
 El contrato entre el servicio y sus clientes está en
 [`docs/protocolo.md`](docs/protocolo.md).

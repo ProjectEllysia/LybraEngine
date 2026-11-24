@@ -18,6 +18,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Sólo para scripts/import_ellysia_kb.py: copiar la base de conocimiento de una
+# instalación de EllysiaServer en vez de llenarla desde NVD.
+ellysia-import = ["psycopg2-binary"]
 dev = [
     "pytest>=7.4.3",
     "pytest-mock>=3.12.0",
