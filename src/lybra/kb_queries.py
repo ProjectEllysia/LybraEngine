@@ -188,7 +188,8 @@ def cve_detail(kb: KnowledgeBase, cve_id: str) -> Optional[dict]:
 
     Returns:
         Optional[dict]: ``cveId``, ``published``, ``cvssScore``, ``severity``,
-            ``description``, ``products``, ``inKev``, ``epssScore``,
+            ``description``, ``products``, ``cweIds``, ``applicability`` (cada
+            regla de NVD con su rango de versiones), ``inKev``, ``epssScore``,
             ``epssPercentile`` y ``distroStatuses``. Una fuente que no la
             conoce deja sus campos vacíos. ``None`` si no la conoce ninguna.
     """
@@ -207,6 +208,16 @@ def cve_detail(kb: KnowledgeBase, cve_id: str) -> Optional[dict]:
         "severity": cve.severity if cve else None,
         "description": cve.description if cve else None,
         "products": [{"vendor": vendor, "product": product} for vendor, product in products],
+        "cweIds": list(cve.cwe_ids) if cve else [],
+        "applicability": [
+            {"vendor": match.vendor, "product": match.product,
+             "versionStartIncluding": match.version_start_including,
+             "versionStartExcluding": match.version_start_excluding,
+             "versionEndIncluding": match.version_end_including,
+             "versionEndExcluding": match.version_end_excluding,
+             "exactVersion": match.exact_version, "requiredOs": match.required_os}
+            for match in cve.cpe_matches
+        ] if cve else [],
         "inKev": kev is not None,
         "epssScore": epss.score if epss else None,
         "epssPercentile": epss.percentile if epss else None,
@@ -235,7 +246,7 @@ def public_cve_detail(kb: KnowledgeBase, cve_id: str) -> Optional[dict]:
     detail = cve_detail(kb, cve_id)
     if detail is None:
         return None
-    for key in ("products", "distroStatuses"):
+    for key in ("products", "distroStatuses", "applicability"):
         detail[f"{key}Total"] = len(detail[key])
         detail[key] = detail[key][:PUBLIC_CVE_LIST_LIMIT]
     return detail

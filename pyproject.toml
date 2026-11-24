@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lybra-engine"
-version = "0.1.0"
+version = "0.1.1"
 description = "Motor de detección de vulnerabilidades de red: descubrimiento, fingerprinting, checks activos y correlación con NVD/KEV/EPSS."
 readme = "README.md"
 license = "GPL-3.0-only"

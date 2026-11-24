@@ -174,7 +174,7 @@ se dan por `*`. Devuelve `{"findings": [Finding, …], "kbFeedVersion": "…"}`.
 
 | Operación | Parámetros | Devuelve |
 |---|---|---|
-| `kb.cve` | `cveId` | `cveId`, `published`, `cvssScore`, `severity`, `description` (en inglés), `products`, `inKev`, `epssScore`, `epssPercentile`, `distroStatuses`. `not_found` si ninguna fuente la conoce. |
+| `kb.cve` | `cveId` | `cveId`, `published`, `cvssScore`, `severity`, `description` (en inglés), `cweIds`, `products`, `applicability` (cada regla de NVD: `vendor`, `product`, `versionStartIncluding`, `versionStartExcluding`, `versionEndIncluding`, `versionEndExcluding`, `exactVersion`, `requiredOs`), `inKev`, `epssScore`, `epssPercentile`, `distroStatuses`. `not_found` si ninguna fuente la conoce. |
 | `kb.version` | `product`, `version` | `recognized`, `vendor`/`product`/`version` del CPE resuelto, `cves` (hasta 25, las más urgentes primero), `cvesTotal`, `endOfLife`. |
 | `kb.products` | `term`, `limit` (por defecto 20, máximo 100) | `{"products": [{vendor, product, displayName}]}`: los que empiezan por `term`. |
 | `kb.resolve` | `names` (hasta 1000) | `{"products": [{vendor, product}]}`: los nombres que resuelven, sin repetir. |

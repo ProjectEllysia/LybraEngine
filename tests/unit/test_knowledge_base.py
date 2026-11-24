@@ -199,6 +199,8 @@ def test_a_cve_detail_joins_every_source(kb):
     detail = cve_detail(kb, "CVE-2021-41773")
 
     assert detail["products"] == [{"vendor": "apache", "product": "http_server"}]
+    assert detail["cweIds"] == ["CWE-22"]
+    assert detail["applicability"][0]["vendor"] == "apache"
     assert detail["distroStatuses"][0]["fixedIn"] == "2.4.51-1"
     assert detail["inKev"] is False
     assert cve_detail(kb, "CVE-2000-0001") is None
