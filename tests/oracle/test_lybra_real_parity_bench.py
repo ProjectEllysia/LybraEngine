@@ -55,7 +55,7 @@ from typing import Dict, List, Optional, Tuple
 
 import pytest
 
-from src.modules.features.themis.lybra import (
+from lybra import (
     DEFAULT_PORTS,
     HostRateLimiter,
     default_dissectors,

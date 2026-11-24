@@ -33,7 +33,7 @@ import re
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
-from src.modules.shared import classify_exposure
+from ._shared import classify_exposure
 
 from .backports import is_unverified_distro_package
 

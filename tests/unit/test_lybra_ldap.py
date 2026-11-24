@@ -11,9 +11,9 @@ corta: una lista de atributos pasa de 127 bytes con facilidad.
 
 import pytest
 
-from src.modules.features.themis.lybra.checks import LDAPS_PORTS, is_ldap_service
-from src.modules.features.themis.lybra.engine import Service
-from src.modules.features.themis.lybra.fingerprinting.ldap import (
+from lybra.checks import LDAPS_PORTS, is_ldap_service
+from lybra.engine import Service
+from lybra.fingerprinting.ldap import (
     RESULT_INAPPROPRIATE_AUTHENTICATION,
     RESULT_SUCCESS,
     ROOTDSE_ATTRIBUTES,
@@ -366,7 +366,7 @@ def _anonymous_plugin(rootdse_replies, naming_search_replies=()):
     """Construye el plugin con una sonda que da respuestas distintas a sus dos
     conexiones: la primera para el bind + rootDSE, la segunda para la
     búsqueda bajo el dominio publicado."""
-    from src.modules.features.themis.lybra.script_checks import LdapAnonymousBindPlugin
+    from lybra.script_checks import LdapAnonymousBindPlugin
 
     connections = [list(rootdse_replies), list(naming_search_replies)]
 
@@ -417,7 +417,7 @@ def test_no_naming_context_means_no_search_and_no_finding():
 
 
 def test_the_anonymous_bind_check_stays_quiet_without_evidence():
-    from src.modules.features.themis.lybra.script_checks import LdapAnonymousBindPlugin
+    from lybra.script_checks import LdapAnonymousBindPlugin
 
     def refuse(_address, _timeout):
         raise ConnectionRefusedError("cerrado")
@@ -427,7 +427,7 @@ def test_the_anonymous_bind_check_stays_quiet_without_evidence():
 
 
 def _cleartext_plugin():
-    from src.modules.features.themis.lybra.script_checks import (
+    from lybra.script_checks import (
         LdapCleartextWithLdapsPlugin,
     )
     return LdapCleartextWithLdapsPlugin()
@@ -460,8 +460,8 @@ def test_the_cleartext_check_makes_no_network_request():
 
 
 def test_both_ldap_checks_are_registered_and_wired_to_their_feed_entries():
-    from src.modules.features.themis.lybra.checks import load_checks
-    from src.modules.features.themis.lybra.script_checks import default_script_plugins
+    from lybra.checks import load_checks
+    from lybra.script_checks import default_script_plugins
 
     plugins = default_script_plugins()
     for check_id in ("ldap-anonymous-bind", "ldap-cleartext-with-ldaps"):
@@ -486,13 +486,13 @@ def _rootdse(**attributes):
 
 
 def _level_plugin(replies):
-    from src.modules.features.themis.lybra.script_checks import LdapDomainFunctionalLevelPlugin
+    from lybra.script_checks import LdapDomainFunctionalLevelPlugin
     probe, _sent = _probe_with(replies)
     return LdapDomainFunctionalLevelPlugin(probe=probe)
 
 
 def _channel_plugin(replies):
-    from src.modules.features.themis.lybra.script_checks import LdapNoEncryptedChannelPlugin
+    from lybra.script_checks import LdapNoEncryptedChannelPlugin
     probe, _sent = _probe_with(replies)
     return LdapNoEncryptedChannelPlugin(probe=probe)
 
@@ -555,7 +555,7 @@ def test_unknown_extensions_do_not_assert_a_missing_encrypted_channel():
 
 
 def test_the_channel_check_ignores_the_ldaps_ports_themselves():
-    from src.modules.features.themis.lybra.script_checks import LdapNoEncryptedChannelPlugin
+    from lybra.script_checks import LdapNoEncryptedChannelPlugin
 
     plugin = LdapNoEncryptedChannelPlugin(probe=_probe_with([])[0])
     assert plugin.applies(Service(389, "tcp", "ldap"))
@@ -563,8 +563,8 @@ def test_the_channel_check_ignores_the_ldaps_ports_themselves():
 
 
 def test_the_two_directory_checks_are_registered_and_wired():
-    from src.modules.features.themis.lybra.checks import load_checks
-    from src.modules.features.themis.lybra.script_checks import default_script_plugins
+    from lybra.checks import load_checks
+    from lybra.script_checks import default_script_plugins
 
     checks = {c.id: c for c in load_checks()}
     for check_id in ("ldap-no-encrypted-channel", "ldap-domain-functional-level-unsupported"):

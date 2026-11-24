@@ -9,7 +9,7 @@ coincidencia si el servicio contesta a las dos lo mismo.
 
 import pytest
 
-from src.modules.features.themis.lybra.checks import (
+from lybra.checks import (
     Baseline,
     Check,
     CheckRuntime,

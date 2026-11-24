@@ -11,7 +11,7 @@ import json
 
 import pytest
 
-from src.modules.features.themis.lybra.checks import (
+from lybra.checks import (
     CheckRuntime,
     Response,
     is_admin_api_service,
@@ -19,9 +19,9 @@ from src.modules.features.themis.lybra.checks import (
     is_http_service,
     load_checks,
 )
-from src.modules.features.themis.lybra.engine import Service
-from src.modules.features.themis.lybra.fingerprinting import default_dissectors
-from src.modules.features.themis.lybra.fingerprinting.http_apis import (
+from lybra.engine import Service
+from lybra.fingerprinting import default_dissectors
+from lybra.fingerprinting.http_apis import (
     ADMIN_APIS,
     AdminApiDissector,
     fingerprint_admin_api,
@@ -233,7 +233,7 @@ def test_every_admin_api_has_a_service_predicate():
     """Un check declara su protocolo como cadena y el runtime necesita el
     predicado que decide si un servicio descubierto *es* ese protocolo. El mapa
     se deriva de los nombres de función, así que basta con definirlas."""
-    from src.modules.features.themis.lybra.checks import _NETWORK_SERVICE_MATCHERS
+    from lybra.checks import _NETWORK_SERVICE_MATCHERS
 
     assert {"docker", "elasticsearch", "kibana",
             "kubernetes", "etcd", "consul"} <= set(_NETWORK_SERVICE_MATCHERS)
@@ -384,7 +384,7 @@ def load_checks_by_id():
 
 
 def test_nomad_and_portainer_have_their_own_predicates():
-    from src.modules.features.themis.lybra.checks import is_nomad_service, is_portainer_service
+    from lybra.checks import is_nomad_service, is_portainer_service
 
     assert is_nomad_service(Service(4646, "tcp", ""))
     assert is_nomad_service(Service(0, "tcp", "nomad"))

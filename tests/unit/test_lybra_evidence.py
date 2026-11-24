@@ -7,7 +7,7 @@ tests son sobre lo que **no** debe acabar en la base de datos.
 
 import pytest
 
-from src.modules.features.themis.lybra.evidence import (
+from lybra.evidence import (
     EvidenceRecorder,
     build_recorder,
     evidence_hash,
@@ -93,7 +93,7 @@ def test_build_recorder_returns_none_when_disabled():
 
 
 def test_secrets_in_a_body_are_redacted_but_their_names_kept():
-    from src.modules.features.themis.lybra.evidence import redact_evidence
+    from lybra.evidence import redact_evidence
 
     body = ("class JConfig {\n\tpublic $password = 'hunter2';\n}\n"
             "define('DB_PASSWORD', 's3cr3t');\n"
@@ -113,7 +113,7 @@ def test_a_nul_byte_in_the_body_is_stripped_so_postgres_can_store_it():
     (gzip del check BREACH) llega lleno de NUL; sin quitarlos, el INSERT de la
     evidencia revienta y tumba el escaneo entero."""
     import json
-    from src.modules.features.themis.lybra.evidence import redact_evidence
+    from lybra.evidence import redact_evidence
 
     redacted = redact_evidence({"body": "gzip\x00\x1f\x8b\x00binario", "status": 200})
 

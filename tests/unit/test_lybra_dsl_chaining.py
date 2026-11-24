@@ -11,7 +11,7 @@ cadena, y un payload **nunca** supera el tope de expansiones.
 
 import pytest
 
-from src.modules.features.themis.lybra.checks import (
+from lybra.checks import (
     Check,
     CheckRuntime,
     Extractor,

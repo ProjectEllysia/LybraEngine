@@ -12,7 +12,7 @@ import struct
 
 import pytest
 
-from src.modules.features.themis.lybra.fingerprinting import windows_rpc as rpc
+from lybra.fingerprinting import windows_rpc as rpc
 
 pytestmark = pytest.mark.unit
 

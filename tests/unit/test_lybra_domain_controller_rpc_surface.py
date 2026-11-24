@@ -9,10 +9,10 @@ dominio: el mismo Windows sin LDAP de Active Directory al lado no dispara.
 
 import pytest
 
-from src.modules.features.themis.lybra.checks import ScriptContext
-from src.modules.features.themis.lybra.engine import Service
-from src.modules.features.themis.lybra.fingerprinting.ldap import TAG_BIND_RESPONSE, TAG_SEARCH_ENTRY, ber
-from src.modules.features.themis.lybra.script_checks import (
+from lybra.checks import ScriptContext
+from lybra.engine import Service
+from lybra.fingerprinting.ldap import TAG_BIND_RESPONSE, TAG_SEARCH_ENTRY, ber
+from lybra.script_checks import (
     DomainControllerRpcSurfaceExposedPlugin,
     default_script_plugins,
 )

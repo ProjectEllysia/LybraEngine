@@ -10,7 +10,7 @@ from datetime import date
 
 import pytest
 
-from src.modules.features.themis.lybra.end_of_life import (
+from lybra.end_of_life import (
     check_end_of_life,
     cycle_for_version,
     load_eol_catalog,
@@ -130,14 +130,14 @@ def test_every_catalog_product_is_the_target_of_a_curated_alias():
     cuando el alias de MySQL pasó de ``mysql:mysql`` a ``oracle:mysql`` y el
     catálogo se quedó con la clave de antes — el fin de soporte de MySQL 5.6
     dejó de salir sin que nada fallara."""
-    from src.modules.features.themis.lybra.kb import load_product_aliases
+    from lybra.kb import load_product_aliases
 
     alias_targets = {f"{vendor}:{product}" for vendor, product in load_product_aliases().values()}
     assert set(load_eol_catalog()) <= alias_targets
 
 
 def test_a_mysql_56_resolved_through_its_alias_is_past_end_of_life():
-    from src.modules.features.themis.lybra.kb import load_product_aliases
+    from lybra.kb import load_product_aliases
 
     vendor, product = load_product_aliases()["mysql"]
     assert check_end_of_life(vendor, product, "5.6.51").is_past

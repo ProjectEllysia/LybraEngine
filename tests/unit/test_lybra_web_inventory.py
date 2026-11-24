@@ -11,10 +11,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.modules.features.themis.lybra import LybraEngine, compute_dedup_key
-from src.modules.features.themis.lybra.checks import Response
-from src.modules.features.themis.lybra.engine import Service
-from src.modules.features.themis.lybra.fingerprinting.http import (
+from lybra import LybraEngine, compute_dedup_key
+from lybra.checks import Response
+from lybra.engine import Service
+from lybra.fingerprinting.http import (
     fingerprint_http,
     load_tech_signatures,
     validate_tech_signatures,

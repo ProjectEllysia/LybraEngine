@@ -8,10 +8,10 @@ de cada una, que este plugin no abre ni lee.
 
 import pytest
 
-from src.modules.features.themis.lybra.checks import ScriptContext
-from src.modules.features.themis.lybra.engine import Service
-from src.modules.features.themis.lybra.fingerprinting.windows_rpc import ShareInfo
-from src.modules.features.themis.lybra.script_checks import (
+from lybra.checks import ScriptContext
+from lybra.engine import Service
+from lybra.fingerprinting.windows_rpc import ShareInfo
+from lybra.script_checks import (
     WindowsSharesUnauthenticatedPlugin,
     default_script_plugins,
 )

@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lybra-engine"
+version = "0.1.0"
+description = "Motor de detección de vulnerabilidades de red: descubrimiento, fingerprinting, checks activos y correlación con NVD/KEV/EPSS."
+readme = "README.md"
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+dependencies = [
+    "cryptography>=41.0.4",
+    "paramiko>=3.4",
+    "PyYAML>=6.0",
+    "requests",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.3",
+    "pytest-mock>=3.12.0",
+    "pytest-xdist>=3.5",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+lybra = ["feeds/*.json", "feeds/*.yaml"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+addopts = "-q --strict-markers -m 'not oracle'"
+markers = [
+    "unit: tests unitarios rápidos, sin red",
+    "integration: tests que ejercitan el motor de punta a punta (sondas, checks y correlación) en vez de una pieza suelta",
+    "oracle: banco de pruebas con oráculo diferencial — levanta contenedores Docker reales y hace red de verdad. Excluido por defecto; se pide con `-m oracle` y se salta solo si no hay Docker.",
+]
+filterwarnings = ["ignore::DeprecationWarning"]

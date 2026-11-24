@@ -8,9 +8,9 @@ El codificador vive en ``transport.py`` (ver el docstring de
 
 import pytest
 
-from src.modules.features.themis.lybra.engine import Service
-from src.modules.features.themis.lybra.transport import build_snmp_get_request
-from src.modules.features.themis.lybra.fingerprinting.snmp import (
+from lybra.engine import Service
+from lybra.transport import build_snmp_get_request
+from lybra.fingerprinting.snmp import (
     SnmpDissector,
     SnmpFingerprint,
     SnmpProbe,
@@ -121,14 +121,14 @@ def test_fingerprint_snmp_never_invents_a_version_from_free_text():
 
 
 def _patterns():
-    from src.modules.features.themis.lybra.fingerprinting.snmp import (
+    from lybra.fingerprinting.snmp import (
         load_sysdescr_patterns,
     )
     return load_sysdescr_patterns()
 
 
 def test_the_bundled_pattern_feed_is_well_formed():
-    from src.modules.features.themis.lybra.fingerprinting.snmp import (
+    from lybra.fingerprinting.snmp import (
         validate_sysdescr_patterns,
     )
     patterns = _patterns()
@@ -141,7 +141,7 @@ def test_every_pattern_recognises_its_own_sample():
     """La regla del feed —sin muestra no hay patrón— comprobada de verdad. Un
     patrón que no reconoce ni el ejemplo que lo acompaña no va a reconocer un
     aparato real."""
-    from src.modules.features.themis.lybra.fingerprinting.snmp import match_sysdescr
+    from lybra.fingerprinting.snmp import match_sysdescr
 
     for entry in _patterns():
         matched = match_sysdescr(entry.sample)
@@ -159,7 +159,7 @@ def test_no_pattern_matches_another_vendors_sample():
     parece perfectamente creíble. Esta matriz cruzada lo delata en cuanto
     alguien añade una entrada demasiado laxa.
     """
-    from src.modules.features.themis.lybra.fingerprinting.snmp import match_sysdescr
+    from lybra.fingerprinting.snmp import match_sysdescr
 
     patterns = _patterns()
     for entry in patterns:
@@ -175,7 +175,7 @@ def test_no_pattern_matches_another_vendors_sample():
 def test_a_pattern_may_identify_a_product_without_any_version():
     """La impresora HP anuncia su modelo y no su firmware. Producto sí, versión
     no: sigue siendo mucho más que el texto crudo, y no se fabrica nada."""
-    from src.modules.features.themis.lybra.fingerprinting.snmp import match_sysdescr
+    from lybra.fingerprinting.snmp import match_sysdescr
 
     printer = ("HP ETHERNET MULTI-ENVIRONMENT,SN:CNB1234567,FN:JW123AB,"
                "SVCID:25086,PID:HP LaserJet M402dn")
@@ -205,11 +205,11 @@ def test_a_matched_pattern_raises_the_qod_of_the_finding():
     """La tabla del §10 del roadmap: 'banner que coincide con un patrón
     específico del producto: qod 80'. Un sysDescr sin reconocer se queda con la
     constante informativa de siempre."""
-    from src.modules.features.themis.lybra.engine import Service
-    from src.modules.features.themis.lybra.fingerprinting.dispatch import (
+    from lybra.engine import Service
+    from lybra.fingerprinting.dispatch import (
         QOD_FINGERPRINT,
     )
-    from src.modules.features.themis.lybra.fingerprinting.snmp import (
+    from lybra.fingerprinting.snmp import (
         QOD_VENDOR_PATTERN,
         SnmpDissector,
     )
@@ -241,7 +241,7 @@ def test_the_pattern_validator_finds_each_kind_of_breakage():
     feed en verde para siempre."""
     import re
 
-    from src.modules.features.themis.lybra.fingerprinting.snmp import (
+    from lybra.fingerprinting.snmp import (
         SysDescrPattern,
         validate_sysdescr_patterns,
     )

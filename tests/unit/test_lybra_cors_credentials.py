@@ -10,7 +10,7 @@ solo, el hallazgo — por eso cada check exige las dos cosas a la vez.
 
 import pytest
 
-from src.modules.features.themis.lybra.checks import (
+from lybra.checks import (
     CheckRuntime,
     Response,
     Service,

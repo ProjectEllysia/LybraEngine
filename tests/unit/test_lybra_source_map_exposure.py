@@ -11,9 +11,9 @@ sitio que contesta 200 a cualquier ruta.
 
 import pytest
 
-from src.modules.features.themis.lybra.checks import ScriptContext
-from src.modules.features.themis.lybra.engine import Service
-from src.modules.features.themis.lybra.script_checks import (
+from lybra.checks import ScriptContext
+from lybra.engine import Service
+from lybra.script_checks import (
     SourceMapExposedPlugin,
     default_script_plugins,
 )
@@ -28,7 +28,7 @@ class _FakeProbe:
     """Sonda que contesta por ruta lo que se le configure; ``None`` = sin respuesta."""
 
     def __init__(self, by_path, baseline=None):
-        from src.modules.features.themis.lybra.checks import Response
+        from lybra.checks import Response
         self._by_path = by_path
         self._baseline = baseline or Response(404, "Not Found", {})
         self.requested = []
@@ -43,7 +43,7 @@ class _FakeProbe:
 
 
 def _response(status, body, headers=None):
-    from src.modules.features.themis.lybra.checks import Response
+    from lybra.checks import Response
     return Response(status, body, headers or {})
 
 

@@ -15,8 +15,8 @@ import yaml
 
 import pytest
 
-from src.modules.features.themis.lybra import checks as checks_mod
-from src.modules.features.themis.lybra import (
+from lybra import checks as checks_mod
+from lybra import (
     load_checks,
     CheckRuntime,
     NetworkProbe,
@@ -574,7 +574,7 @@ class _OpenerFalso:
 
 
 def _probe_con_opener(monkeypatch, detect_scheme):
-    from src.modules.features.themis.lybra import HttpProbe
+    from lybra import HttpProbe
 
     probe = HttpProbe(detect_scheme=detect_scheme)
     opener = _OpenerFalso()
@@ -668,7 +668,7 @@ def test_merge_repeated_headers_is_case_insensitive_when_grouping():
 
 
 def test_a_request_with_several_set_cookie_headers_keeps_them_all(monkeypatch):
-    from src.modules.features.themis.lybra import HttpProbe
+    from lybra import HttpProbe
 
     probe = HttpProbe(detect_scheme=lambda host, port: False)
     opener = type("_Opener", (), {"open": lambda self, request, timeout=None:
@@ -712,7 +712,7 @@ def test_a_service_without_a_port_is_never_probed_for_tls(monkeypatch):
 
 
 def test_negotiates_tls_is_false_when_the_connection_fails():
-    from src.modules.features.themis.lybra.checks import negotiates_tls
+    from lybra.checks import negotiates_tls
 
     def connect_que_falla(address, timeout):
         raise OSError("connection refused")
@@ -721,7 +721,7 @@ def test_negotiates_tls_is_false_when_the_connection_fails():
 
 
 def test_the_usual_tls_ports_are_candidates_for_hygiene_checks():
-    from src.modules.features.themis.lybra import is_tls_service
+    from lybra import is_tls_service
 
     for puerto in (443, 8443, 9443, 10443, 8834):
         servicio = Service(puerto, "tcp", "", "", "", None)
@@ -738,7 +738,7 @@ def test_a_tls_service_on_an_arbitrary_port_still_misses_the_hygiene_checks():
     certificado: su candidatura sigue decidiéndose por número de puerto.
     Hacerla observada del todo está pendiente.
     """
-    from src.modules.features.themis.lybra import is_tls_service
+    from lybra import is_tls_service
 
     assert is_tls_service(Service(7777, "tcp", "", "", "", None)) is False
 
@@ -894,7 +894,7 @@ class _RelojFalso:
 
 
 def _limiter(reloj, min_interval=0.2):
-    from src.modules.features.themis.lybra import HostRateLimiter
+    from lybra import HostRateLimiter
     return HostRateLimiter(min_interval=min_interval, clock=reloj, sleeper=reloj.sleep)
 
 
@@ -947,7 +947,7 @@ def test_concurrent_requests_to_one_host_get_distinct_increasing_turns():
     """
     import threading
 
-    from src.modules.features.themis.lybra import HostRateLimiter
+    from lybra import HostRateLimiter
 
     esperas: list = []
     apuntador = threading.Lock()
@@ -980,7 +980,7 @@ def test_concurrent_requests_to_one_host_get_distinct_increasing_turns():
 # contesta otra vez.
 
 def _adaptive_limiter(reloj, min_interval=0.2, max_backoff_factor=8.0, failures_before_backoff=3):
-    from src.modules.features.themis.lybra import HostRateLimiter
+    from lybra import HostRateLimiter
     return HostRateLimiter(
         min_interval=min_interval, clock=reloj, sleeper=reloj.sleep,
         max_backoff_factor=max_backoff_factor, failures_before_backoff=failures_before_backoff,
@@ -1071,7 +1071,7 @@ def test_slowing_down_one_host_does_not_slow_down_another():
 
 def test_without_a_backoff_factor_the_interval_stays_fixed():
     # El default de la clase: quien no pide adaptación no la tiene, informe o no.
-    from src.modules.features.themis.lybra import HostRateLimiter
+    from lybra import HostRateLimiter
     limiter = HostRateLimiter(min_interval=0.2, clock=_RelojFalso(), sleeper=lambda _: None)
 
     for _ in range(10):
@@ -1315,7 +1315,7 @@ def test_the_smb_verdict_survives_renaming_the_fingerprint_label(monkeypatch):
     importa (el ``SecurityMode``), y el veredicto tiene que ser el mismo en los
     dos sentidos.
     """
-    from src.modules.features.themis.lybra import script_checks as script_module
+    from lybra import script_checks as script_module
 
     original = script_module.fingerprint_smb
 
@@ -1430,7 +1430,7 @@ def test_snmp_check_in_bundled_feed():
 
 def test_bundled_feed_is_yaml():
     """El feed propio vive en YAML; el JSON no está soportado."""
-    from src.modules.features.themis.lybra.checks import _BUNDLED_FEED
+    from lybra.checks import _BUNDLED_FEED
     assert _BUNDLED_FEED.suffix == ".yaml"
     assert _BUNDLED_FEED.exists()
 

@@ -11,15 +11,15 @@ que el resto de sondas del paquete.
 
 import pytest
 
-from src.modules.features.themis.lybra.engine import Service
-from src.modules.features.themis.lybra.fingerprinting import default_dissectors
-from src.modules.features.themis.lybra.fingerprinting.cascade import (
+from lybra.engine import Service
+from lybra.fingerprinting import default_dissectors
+from lybra.fingerprinting.cascade import (
     banner_readers,
     blind_probers,
     identify_unknown_service,
     read_volunteered_banner,
 )
-from src.modules.features.themis.lybra.fingerprinting.dispatch import (
+from lybra.fingerprinting.dispatch import (
     Dissector,
     DissectorResult,
 )

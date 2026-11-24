@@ -12,37 +12,37 @@ import struct
 
 import pytest
 
-from src.modules.features.themis.lybra.checks import (
+from lybra.checks import (
     is_cassandra_service,
     is_memcached_service,
     is_zookeeper_service,
     load_checks,
 )
-from src.modules.features.themis.lybra.engine import Service
-from src.modules.features.themis.lybra.fingerprinting import default_dissectors
-from src.modules.features.themis.lybra.fingerprinting import cassandra as cql
-from src.modules.features.themis.lybra.fingerprinting import zookeeper as zk
-from src.modules.features.themis.lybra.fingerprinting.cassandra import (
+from lybra.engine import Service
+from lybra.fingerprinting import default_dissectors
+from lybra.fingerprinting import cassandra as cql
+from lybra.fingerprinting import zookeeper as zk
+from lybra.fingerprinting.cassandra import (
     CassandraDissector,
     CassandraProbe,
     fingerprint_cassandra,
     parse_release_version,
     parse_supported,
 )
-from src.modules.features.themis.lybra.fingerprinting.memcached import (
+from lybra.fingerprinting.memcached import (
     MemcachedDissector,
     MemcachedProbe,
     fingerprint_memcached,
     parse_memcached_version,
 )
-from src.modules.features.themis.lybra.fingerprinting.zookeeper import (
+from lybra.fingerprinting.zookeeper import (
     ZookeeperDissector,
     ZookeeperProbe,
     fingerprint_zookeeper,
     parse_get_children_response,
     parse_srvr_version,
 )
-from src.modules.features.themis.lybra.script_checks import (
+from lybra.script_checks import (
     CassandraUnauthenticatedAccessPlugin,
     MemcachedUnauthenticatedAccessPlugin,
     ZookeeperUnauthenticatedAccessPlugin,
@@ -426,7 +426,7 @@ def test_the_dissectors_do_not_claim_each_others_services():
 
 
 def test_the_three_ports_are_swept_by_default_and_named():
-    from src.modules.features.themis.lybra.transport import DEFAULT_PORTS, WELL_KNOWN_PORTS
+    from lybra.transport import DEFAULT_PORTS, WELL_KNOWN_PORTS
 
     assert (WELL_KNOWN_PORTS[11211], WELL_KNOWN_PORTS[2181], WELL_KNOWN_PORTS[9042]) == \
         ("memcached", "zookeeper", "cassandra")

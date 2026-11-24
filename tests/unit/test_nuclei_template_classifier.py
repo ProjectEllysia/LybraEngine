@@ -12,7 +12,7 @@ describiría lo que la ingesta acabaría haciendo.
 
 import pytest
 
-from src.modules.features.themis.lybra.ingest import (
+from lybra.ingest import (
     Bucket,
     classify_template,
     is_ingestible,

@@ -12,7 +12,7 @@ import struct
 
 import pytest
 
-from src.modules.features.themis.lybra.checks import (
+from lybra.checks import (
     is_dns_service,
     is_ike_service,
     is_mdns_service,
@@ -20,9 +20,9 @@ from src.modules.features.themis.lybra.checks import (
     is_netbios_service,
     is_ntp_service,
 )
-from src.modules.features.themis.lybra.engine import Service
-from src.modules.features.themis.lybra.transport import UDP_PROBES, scan_udp_ports_sync
-from src.modules.features.themis.lybra.udp_payloads import (
+from lybra.engine import Service
+from lybra.transport import UDP_PROBES, scan_udp_ports_sync
+from lybra.udp_payloads import (
     DNS_CLASS_CHAOS,
     DNS_FLAG_RECURSION_AVAILABLE,
     DNS_TYPE_TXT,
@@ -38,7 +38,7 @@ from src.modules.features.themis.lybra.udp_payloads import (
     encode_dns_name,
     encode_netbios_name,
 )
-from src.modules.features.themis.lybra.fingerprinting.udp_services import (
+from lybra.fingerprinting.udp_services import (
     DnsDissector,
     DnsProbe,
     IkeDissector,
@@ -78,7 +78,7 @@ def test_every_udp_probe_row_has_a_consumer():
     consuma de verdad, nunca la sonda sola. Un payload sin lector sólo produce
     un `open_port` informativo a cambio de construir y validar una consulta
     más."""
-    from src.modules.features.themis.lybra import default_dissectors
+    from lybra import default_dissectors
 
     dissectors = default_dissectors()
     for port in UDP_PROBES:
@@ -309,7 +309,7 @@ def test_the_ike_request_declares_a_consistent_length_at_every_level():
 def test_the_ike_request_offers_a_wide_range_on_purpose():
     """Lo interesante no es que la negociación prospere, sino cuál elige el
     servidor: un gateway que acepta DES o MD5 lo está diciendo él mismo."""
-    from src.modules.features.themis.lybra.udp_payloads import IKE_TRANSFORMS
+    from lybra.udp_payloads import IKE_TRANSFORMS
 
     # Cabecera (28) + cabecera del SA (4) + DOI y situación (8) + cabecera de
     # la propuesta (4) deja el recuento de transformadas en el cuarto byte del
@@ -508,7 +508,7 @@ class _Context:
 
 
 def test_the_open_resolver_check_follows_the_flag_the_server_sets():
-    from src.modules.features.themis.lybra.script_checks import DnsOpenResolverPlugin
+    from lybra.script_checks import DnsOpenResolverPlugin
 
     def plugin(reply):
         return DnsOpenResolverPlugin(probe=DnsProbe(sender=_sender(reply)))
@@ -521,7 +521,7 @@ def test_the_open_resolver_check_follows_the_flag_the_server_sets():
 
 
 def test_the_monlist_check_follows_the_servers_answer():
-    from src.modules.features.themis.lybra.script_checks import NtpMonlistPlugin
+    from lybra.script_checks import NtpMonlistPlugin
 
     def plugin(reply):
         return NtpMonlistPlugin(probe=NtpProbe(sender=_sender(reply)))
@@ -538,8 +538,8 @@ def test_the_monlist_check_follows_the_servers_answer():
     ("ntp-monlist-enabled", "ntp", "HIGH"),
 ])
 def test_the_amplification_checks_are_registered(check_id, service, severity):
-    from src.modules.features.themis.lybra.checks import load_checks
-    from src.modules.features.themis.lybra.script_checks import default_script_plugins
+    from lybra.checks import load_checks
+    from lybra.script_checks import default_script_plugins
 
     check = next(c for c in load_checks() if c.id == check_id)
     assert (check.service, check.severity, check.mode) == (service, severity, "safe")
@@ -601,8 +601,8 @@ def test_a_strong_group_is_not_flagged():
 
 
 def test_the_ike_weak_transform_plugin_fires_only_on_weak_cryptography():
-    from src.modules.features.themis.lybra.checks import ScriptContext, Service
-    from src.modules.features.themis.lybra.script_checks import IkeWeakTransformPlugin
+    from lybra.checks import ScriptContext, Service
+    from lybra.script_checks import IkeWeakTransformPlugin
 
     class _Probe:
         def __init__(self, reply):

@@ -41,7 +41,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import Dict, Optional, Tuple
 
-from src.modules.shared import utcnow_naive
+from ._shared import utcnow_naive
 
 from .engine import Service
 

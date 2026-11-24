@@ -10,7 +10,7 @@ import struct
 
 import pytest
 
-from src.modules.features.themis.lybra import (
+from lybra import (
     parse_smtp_banner,
     fingerprint_smtp,
     fingerprint_imap,
@@ -37,11 +37,11 @@ from src.modules.features.themis.lybra import (
     is_redis_service,
     is_vnc_service,
 )
-from src.modules.features.themis.lybra.fingerprinting.smb import (
+from lybra.fingerprinting.smb import (
     build_negotiate_request,
     _DIALECTS,
 )
-from src.modules.features.themis.lybra.engine import Service
+from lybra.engine import Service
 
 pytestmark = pytest.mark.unit
 

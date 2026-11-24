@@ -11,7 +11,7 @@ from datetime import date
 
 import pytest
 
-from src.modules.features.themis.lybra import LybraEngine, Service
+from lybra import LybraEngine, Service
 
 pytestmark = pytest.mark.unit
 
@@ -62,7 +62,7 @@ def test_a_product_outside_the_eol_catalog_gets_nothing_extra():
 
 
 def test_an_inventory_origin_end_of_life_finding_is_confirmed_with_high_qod():
-    from src.modules.features.themis.lybra import QOD_INVENTORY_MATCH
+    from lybra import QOD_INVENTORY_MATCH
 
     service = Service(port=None, protocol="", name="", product="nginx",
                       version="1.18.0", origin="inventory")

@@ -15,10 +15,10 @@ from __future__ import annotations
 
 import pytest
 
-from src.modules.features.themis.lybra.backports import (
+from lybra.backports import (
     BACKPORT_CHECK_ID, apply_backport_verdicts,
 )
-from src.modules.features.themis.lybra.distro import infer_distro_release
+from lybra.distro import infer_distro_release
 
 pytestmark = pytest.mark.unit
 
@@ -212,7 +212,7 @@ def test_without_a_release_the_ubuntu_advisory_is_not_found():
 
 # ───────────────────────────────── lo que nadie pudo contrastar
 
-from src.modules.features.themis.lybra.backports import is_unverified_distro_package  # noqa: E402
+from lybra.backports import is_unverified_distro_package  # noqa: E402
 
 
 @pytest.mark.parametrize("overrides,expected", [
@@ -238,7 +238,7 @@ def test_the_signal_survives_a_round_trip_through_the_database():
 def test_a_network_apache_is_asked_as_apache2():
     """El producto de un servicio de red es una etiqueta («Apache httpd»); el
     motor no la pasa como nombre de paquete, y la verificación usa el CPE."""
-    from src.modules.features.themis.lybra.engine import LybraEngine, Service
+    from lybra.engine import LybraEngine, Service
     import types
 
     engine = LybraEngine(cve_lookup=lambda *a: [types.SimpleNamespace(

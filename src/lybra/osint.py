@@ -36,7 +36,7 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
-from src.modules.shared import is_private_target, isoformat_utc
+from ._shared import is_private_target, isoformat_utc
 
 from .kb import normalize_cpe_to_23, parse_cpe23
 

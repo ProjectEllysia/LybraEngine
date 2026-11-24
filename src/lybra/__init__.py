@@ -1,9 +1,9 @@
 """Lybra's own vulnerability engine — the code that makes it a scanner.
 
 This package holds everything that makes Lybra a scanner in its own right,
-rather than an orchestrator that just runs Nmap and Nikto. By project
-convention the managers live in ``themis/managers.py`` and the repositories in
-``themis/repositories.py``; the detection logic lives here.
+rather than an orchestrator that just runs Nmap and Nikto. Persistence and the
+history of each asset belong to the application that integrates the engine; the
+detection logic lives here.
 
 A scan flows down through the engine's layers, and each module here owns one of
 them:

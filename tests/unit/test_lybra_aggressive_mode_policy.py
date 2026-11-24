@@ -12,7 +12,7 @@ protocolo, que ya tiene sus propios tests.
 
 import pytest
 
-from src.modules.features.themis.lybra.checks import (
+from lybra.checks import (
     CHECK_MODES,
     CheckRuntime,
     Service,

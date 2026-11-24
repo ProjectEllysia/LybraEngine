@@ -17,12 +17,12 @@ from contextlib import contextmanager
 import paramiko
 import pytest
 
-from src.modules.features.themis.lybra.checks import Service
-from src.modules.features.themis.lybra.fingerprinting.ssh_auth import (
+from lybra.checks import Service
+from lybra.fingerprinting.ssh_auth import (
     SshAuthMethods,
     SshAuthProbe,
 )
-from src.modules.features.themis.lybra.script_checks import (
+from lybra.script_checks import (
     SshNoneAuthenticationAcceptedPlugin,
     SshPasswordOnlyAuthenticationPlugin,
     _SshAuthCache,
@@ -225,7 +225,7 @@ def test_the_two_plugins_share_one_query_per_service():
 # ======================================================================
 
 def test_the_two_checks_are_registered_and_run_in_aggressive_mode():
-    from src.modules.features.themis.lybra.checks import load_checks
+    from lybra.checks import load_checks
 
     for check_id in ("ssh-none-authentication-accepted", "ssh-password-only-authentication"):
         check = next(c for c in load_checks() if c.id == check_id)

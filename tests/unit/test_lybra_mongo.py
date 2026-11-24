@@ -14,9 +14,9 @@ import struct
 
 import pytest
 
-from src.modules.features.themis.lybra.checks import is_mongodb_service
-from src.modules.features.themis.lybra.engine import Service
-from src.modules.features.themis.lybra.fingerprinting.mongo import (
+from lybra.checks import is_mongodb_service
+from lybra.engine import Service
+from lybra.fingerprinting.mongo import (
     BUILD_INFO_COMMAND,
     HELLO_COMMAND,
     LEGACY_BUILD_INFO_COMMAND,
@@ -253,7 +253,7 @@ class _Context:
 
 
 def _plugin(replies):
-    from src.modules.features.themis.lybra.script_checks import (
+    from lybra.script_checks import (
         MongoUnauthenticatedAccessPlugin,
     )
     probe, _sent = _probe_with(replies)
@@ -266,7 +266,7 @@ def test_the_check_fires_only_for_a_server_that_hands_over_its_catalogue():
 
 
 def test_the_check_stays_quiet_without_evidence():
-    from src.modules.features.themis.lybra.script_checks import (
+    from lybra.script_checks import (
         MongoUnauthenticatedAccessPlugin,
     )
 
@@ -278,8 +278,8 @@ def test_the_check_stays_quiet_without_evidence():
 
 
 def test_the_check_is_registered_and_wired_to_its_feed_entry():
-    from src.modules.features.themis.lybra.checks import load_checks
-    from src.modules.features.themis.lybra.script_checks import default_script_plugins
+    from lybra.checks import load_checks
+    from lybra.script_checks import default_script_plugins
 
     check = next(c for c in load_checks() if c.id == "mongodb-unauthenticated-access")
     assert check.severity == "CRITICAL" and check.mode == "safe"

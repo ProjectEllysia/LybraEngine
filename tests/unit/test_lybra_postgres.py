@@ -13,9 +13,9 @@ import struct
 
 import pytest
 
-from src.modules.features.themis.lybra.checks import is_postgres_service
-from src.modules.features.themis.lybra.engine import Service
-from src.modules.features.themis.lybra.fingerprinting.postgres import (
+from lybra.checks import is_postgres_service
+from lybra.engine import Service
+from lybra.fingerprinting.postgres import (
     PROTOCOL_VERSION_3,
     SSL_REQUEST_CODE,
     PostgresDissector,
@@ -260,7 +260,7 @@ def test_the_dissector_stays_quiet_when_nothing_answered():
 
 
 def _trust_plugin(replies):
-    from src.modules.features.themis.lybra.script_checks import (
+    from lybra.script_checks import (
         PostgresTrustAuthenticationPlugin,
     )
     probe, _sent = _probe_with(replies)
@@ -288,7 +288,7 @@ def test_the_trust_check_stays_quiet_for_a_server_that_authenticates(code):
 def test_the_trust_check_stays_quiet_without_evidence():
     """Sin intercambio no hay evidencia, y sin evidencia no hay hallazgo — el
     mismo criterio que los otros dos plugins de primera parte."""
-    from src.modules.features.themis.lybra.script_checks import (
+    from lybra.script_checks import (
         PostgresTrustAuthenticationPlugin,
     )
 
@@ -300,8 +300,8 @@ def test_the_trust_check_stays_quiet_without_evidence():
 
 
 def test_the_trust_check_is_registered_and_wired_to_its_feed_entry():
-    from src.modules.features.themis.lybra.checks import load_checks
-    from src.modules.features.themis.lybra.script_checks import default_script_plugins
+    from lybra.checks import load_checks
+    from lybra.script_checks import default_script_plugins
 
     check = next(c for c in load_checks() if c.id == "postgres-trust-authentication")
     assert check.severity == "CRITICAL" and check.mode == "safe"
@@ -319,7 +319,7 @@ class _EvidenceContext(_Context):
 
 
 def _password_plugin(replies):
-    from src.modules.features.themis.lybra.script_checks import (
+    from lybra.script_checks import (
         PostgresPasswordWithoutTlsPlugin,
     )
     probe, _sent = _probe_with(replies)
@@ -350,8 +350,8 @@ def test_an_unreadable_ssl_reply_is_not_flagged():
 
 
 def test_the_password_check_is_registered_and_wired_to_its_feed_entry():
-    from src.modules.features.themis.lybra.checks import load_checks
-    from src.modules.features.themis.lybra.script_checks import default_script_plugins
+    from lybra.checks import load_checks
+    from lybra.script_checks import default_script_plugins
 
     check = next(c for c in load_checks() if c.id == "postgres-password-without-tls")
     assert check.mode == "safe" and check.service == "postgres"

@@ -10,8 +10,8 @@ import struct
 
 import pytest
 
-from src.modules.features.themis.lybra import apply_refutations, split_refutations
-from src.modules.features.themis.lybra.checks import (
+from lybra import apply_refutations, split_refutations
+from lybra.checks import (
     Check,
     CheckRuntime,
     ScriptContext,
@@ -19,7 +19,7 @@ from src.modules.features.themis.lybra.checks import (
     load_checks,
     validate_checks,
 )
-from src.modules.features.themis.lybra.script_checks import (
+from lybra.script_checks import (
     SshTerrapinPlugin,
     SshWeakAlgorithmsPlugin,
     _KexinitCache,

@@ -7,7 +7,7 @@ Pure functions over dicts — no DB. OpenVAS had the same kind of adapter
 
 import pytest
 
-from src.modules.features.themis.lybra import nikto_incident_to_finding
+from lybra import nikto_incident_to_finding
 
 pytestmark = pytest.mark.unit
 

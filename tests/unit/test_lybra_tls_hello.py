@@ -20,8 +20,8 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 
-from src.modules.features.themis.lybra.fingerprinting.tls import TlsProbe
-from src.modules.features.themis.lybra.fingerprinting.tls_hello import (
+from lybra.fingerprinting.tls import TlsProbe
+from lybra.fingerprinting.tls_hello import (
     CIPHER_SUITES,
     HANDSHAKE_CERTIFICATE,
     HANDSHAKE_SERVER_HELLO_DONE,

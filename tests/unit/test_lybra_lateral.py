@@ -5,8 +5,8 @@ Puro: los hosts se construyen a mano, sin base de datos ni red.
 
 import pytest
 
-from src.modules.features.themis.lybra import GroupHost, assess_lateral_risk, propagation_score, segment_of
-from src.modules.features.themis.lybra.correlation import compute_dedup_key
+from lybra import GroupHost, assess_lateral_risk, propagation_score, segment_of
+from lybra.correlation import compute_dedup_key
 
 pytestmark = pytest.mark.unit
 

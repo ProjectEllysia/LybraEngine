@@ -23,7 +23,7 @@ from dataclasses import replace
 
 import pytest
 
-from src.modules.features.themis.lybra.checks import (
+from lybra.checks import (
     CHECKS_FEED_VERSION,
     Matcher,
     Request,

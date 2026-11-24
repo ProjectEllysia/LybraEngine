@@ -51,7 +51,7 @@ from typing import Optional, Tuple
 
 import pytest
 
-from src.modules.features.themis.lybra import (
+from lybra import (
     HostRateLimiter,
     Service,
     default_dissectors,
@@ -445,7 +445,7 @@ def test_smb1_is_detected_where_it_is_enabled_and_not_where_it_is_not(
     que no contesta o un parser con un desplazamiento mal. Sólo el positivo
     distingue "sabe mirar" de "siempre dice que no".
     """
-    from src.modules.features.themis.lybra.fingerprinting.smb import SmbProbe
+    from lybra.fingerprinting.smb import SmbProbe
 
     probe = SmbProbe(timeout=10.0)
     assert probe.speaks_smb1(_HOST, smb1_target.port) is True
@@ -455,7 +455,7 @@ def test_smb1_is_detected_where_it_is_enabled_and_not_where_it_is_not(
 def test_smb_reports_the_hostname_the_server_declares(smb_target):
     """El nombre de equipo sale del SESSION_SETUP anónimo, y es el mejor
     identificador de activo que existe en una red Windows."""
-    from src.modules.features.themis.lybra.fingerprinting.smb import SmbProbe
+    from lybra.fingerprinting.smb import SmbProbe
 
     identity = SmbProbe(timeout=10.0).fetch_identity(_HOST, smb_target.port)
     assert identity.get("netbios_computer_name"), (

@@ -11,13 +11,13 @@ import types
 
 import pytest
 
-from src.modules.features.themis.lybra import score_finding
-from src.modules.features.themis.lybra.applicability import (
+from lybra import score_finding
+from lybra.applicability import (
     classify_cve_applicability,
     load_cve_applicability,
 )
-from src.modules.features.themis.lybra.correlation import CONDITIONAL_VERSION_CHECK_ID
-from src.modules.features.themis.lybra.engine import LybraEngine, Service
+from lybra.correlation import CONDITIONAL_VERSION_CHECK_ID
+from lybra.engine import LybraEngine, Service
 
 pytestmark = pytest.mark.unit
 

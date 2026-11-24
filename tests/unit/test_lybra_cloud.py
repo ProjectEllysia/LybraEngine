@@ -6,7 +6,7 @@ rechazan y cómo se canonizan.
 
 import pytest
 
-from src.modules.features.themis.lybra.cloud import CloudResource, parse_cloud_resource
+from lybra.cloud import CloudResource, parse_cloud_resource
 
 pytestmark = pytest.mark.unit
 

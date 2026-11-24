@@ -6,8 +6,8 @@ devuelven respuestas fabricadas, así que ninguna prueba sale a la red.
 
 import pytest
 
-from src.modules.features.themis.lybra import CloudProbe, load_takeover_signatures, parse_cloud_resource
-from src.modules.features.themis.lybra.checks import Response
+from lybra import CloudProbe, load_takeover_signatures, parse_cloud_resource
+from lybra.checks import Response
 
 pytestmark = pytest.mark.unit
 
@@ -133,7 +133,7 @@ def test_a_cname_to_an_unknown_service_costs_no_request():
 
 
 def test_two_dangling_subdomains_get_distinct_dedup_identities():
-    from src.modules.features.themis.lybra import compute_dedup_key
+    from lybra import compute_dedup_key
 
     responses = {(name, "/"): Response(404, "There isn't a GitHub Pages site here", {})
                  for name in ("a.example.com", "b.example.com")}

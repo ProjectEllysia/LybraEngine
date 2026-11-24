@@ -11,14 +11,14 @@ encima de la sesión se inventaría capacidades que el transporte real no tiene)
 
 import pytest
 
-from src.modules.features.themis.lybra.checks import (
+from lybra.checks import (
     CheckRuntime,
     NetworkProbe,
     Service,
     load_checks,
 )
-from src.modules.features.themis.lybra.fingerprinting.telnet import TelnetProbe
-from src.modules.features.themis.lybra.fingerprinting.vnc import VncProbe
+from lybra.fingerprinting.telnet import TelnetProbe
+from lybra.fingerprinting.vnc import VncProbe
 
 pytestmark = pytest.mark.unit
 
@@ -69,7 +69,7 @@ def _fired(check_id, sock, service):
 
 
 def _telnet_plugin(reply):
-    from src.modules.features.themis.lybra.script_checks import TelnetEnabledPlugin
+    from lybra.script_checks import TelnetEnabledPlugin
 
     class _Sock:
         def settimeout(self, _t):
@@ -109,7 +109,7 @@ def test_a_mute_or_non_telnet_port_23_is_not_flagged():
 
 
 def test_the_telnet_check_is_registered_and_wired():
-    from src.modules.features.themis.lybra.script_checks import default_script_plugins
+    from lybra.script_checks import default_script_plugins
 
     check = next(c for c in _CHECKS if c.id == "telnet-enabled")
     assert check.service == "telnet" and check.severity == "HIGH"
@@ -120,7 +120,7 @@ def test_the_telnet_check_is_registered_and_wired():
 
 
 def _vnc_plugin(types):
-    from src.modules.features.themis.lybra.script_checks import VncNoAuthenticationPlugin
+    from lybra.script_checks import VncNoAuthenticationPlugin
 
     class _Probe(VncProbe):
         def security_types(self, host, port=5900):
@@ -269,7 +269,7 @@ class _FtpSocket:
 
 
 def test_the_ftp_upgrade_accepts_234_and_rejects_anything_else():
-    from src.modules.features.themis.lybra.fingerprinting.tls import _upgrade_ftp
+    from lybra.fingerprinting.tls import _upgrade_ftp
 
     accepted = _FtpSocket(b"234 AUTH TLS successful\r\n")
     assert _upgrade_ftp(accepted) is True
@@ -364,7 +364,7 @@ def test_the_implicit_tls_mail_ports_are_not_asked_for_starttls(service):
 
 
 def test_the_dot_terminated_read_stops_at_the_lone_dot_and_keeps_the_rest():
-    from src.modules.features.themis.lybra.checks import NetworkSession
+    from lybra.checks import NetworkSession
 
     sock = _FakeNetSocket(greeting=b"+OK list\r\nUSER\r\n.\r\n+OK next\r\n")
     session = NetworkSession(sock)
@@ -401,7 +401,7 @@ class _ScriptedSocket:
 
 
 def test_the_smtp_upgrade_says_ehlo_then_starttls_and_wants_a_220():
-    from src.modules.features.themis.lybra.fingerprinting.tls import _upgrade_smtp
+    from lybra.fingerprinting.tls import _upgrade_smtp
 
     accepted = _ScriptedSocket(b"220 mail.example.com ESMTP\r\n",
                                b"250-mail.example.com\r\n250 STARTTLS\r\n",
@@ -414,7 +414,7 @@ def test_the_smtp_upgrade_says_ehlo_then_starttls_and_wants_a_220():
 
 
 def test_the_imap_upgrade_skips_untagged_lines_and_wants_a_tagged_ok():
-    from src.modules.features.themis.lybra.fingerprinting.tls import _upgrade_imap
+    from lybra.fingerprinting.tls import _upgrade_imap
 
     accepted = _ScriptedSocket(b"* OK Dovecot ready.\r\n",
                                b"* NOTE ignored\r\na1 OK Begin TLS negotiation now.\r\n")
@@ -424,7 +424,7 @@ def test_the_imap_upgrade_skips_untagged_lines_and_wants_a_tagged_ok():
 
 
 def test_the_pop3_upgrade_sends_stls_and_wants_ok():
-    from src.modules.features.themis.lybra.fingerprinting.tls import _upgrade_pop3
+    from lybra.fingerprinting.tls import _upgrade_pop3
 
     accepted = _ScriptedSocket(b"+OK Dovecot ready.\r\n", b"+OK Begin TLS negotiation\r\n")
     assert _upgrade_pop3(accepted) is True
@@ -435,7 +435,7 @@ def test_the_pop3_upgrade_sends_stls_and_wants_ok():
 def test_a_text_line_read_stops_before_the_tls_handshake_bytes():
     """Lo que venga tras la respuesta al paso a TLS es del saludo TLS, y no se
     puede consumir aquí."""
-    from src.modules.features.themis.lybra.fingerprinting.tls import _read_text_line
+    from lybra.fingerprinting.tls import _read_text_line
 
     sock = _ScriptedSocket(b"+OK go ahead\r\n\x16\x03\x01")
     assert _read_text_line(sock) == "+OK go ahead"
@@ -478,7 +478,7 @@ def test_ssh_or_a_database_gets_no_certificate_audit():
 
 
 def _certificate(self_signed):
-    from src.modules.features.themis.lybra.fingerprinting.tls import TlsInfo
+    from lybra.fingerprinting.tls import TlsInfo
     return TlsInfo(protocol="TLSv1.3", cipher="TLS_AES_256_GCM_SHA384", subject_cn="mail.example.com",
                    issuer_cn="mail.example.com" if self_signed else "R11", self_signed=self_signed,
                    expired=False, days_until_expiry=200, names=("mail.example.com",))
@@ -527,8 +527,8 @@ class _WinrmProbe:
 
 
 def _winrm_run(response):
-    from src.modules.features.themis.lybra.checks import ScriptContext
-    from src.modules.features.themis.lybra.script_checks import WinrmBasicAuthCleartextPlugin
+    from lybra.checks import ScriptContext
+    from lybra.script_checks import WinrmBasicAuthCleartextPlugin
 
     probe = _WinrmProbe(response)
     context = ScriptContext(target="10.0.0.5", service=Service(5985, "tcp", "wsman", "", "", None))
@@ -536,7 +536,7 @@ def _winrm_run(response):
 
 
 def _winrm_401(authenticate, server="Microsoft-HTTPAPI/2.0", scheme="http"):
-    from src.modules.features.themis.lybra.checks import Response
+    from lybra.checks import Response
     return Response(401, "", {"www-authenticate": authenticate, "server": server},
                     requested_scheme=scheme)
 
@@ -576,7 +576,7 @@ def test_a_winrm_that_does_not_answer_is_not_flagged():
 
 
 def test_winrm_is_only_asked_on_its_cleartext_port():
-    from src.modules.features.themis.lybra.script_checks import WinrmBasicAuthCleartextPlugin
+    from lybra.script_checks import WinrmBasicAuthCleartextPlugin
 
     plugin = WinrmBasicAuthCleartextPlugin(probe=_WinrmProbe(None))
     assert plugin.applies(Service(5985, "tcp", "", "", "", None))
@@ -585,7 +585,7 @@ def test_winrm_is_only_asked_on_its_cleartext_port():
 
 
 def test_the_winrm_check_is_registered_and_wired_to_its_feed_entry():
-    from src.modules.features.themis.lybra.script_checks import default_script_plugins
+    from lybra.script_checks import default_script_plugins
 
     check = next(c for c in _CHECKS if c.id == "winrm-basic-auth-cleartext")
     assert check.mode == "safe" and check.service == "winrm"

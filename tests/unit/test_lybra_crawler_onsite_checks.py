@@ -13,7 +13,7 @@ anteponerle un directorio.
 
 import pytest
 
-from src.modules.features.themis.lybra.checks import (
+from lybra.checks import (
     Check,
     CheckRuntime,
     Matcher,

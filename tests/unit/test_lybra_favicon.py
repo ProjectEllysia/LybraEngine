@@ -11,8 +11,8 @@ import base64
 
 import pytest
 
-from src.modules.features.themis.lybra.checks import Response
-from src.modules.features.themis.lybra.fingerprinting.favicon import (
+from lybra.checks import Response
+from lybra.fingerprinting.favicon import (
     FaviconCatalog,
     FaviconEntry,
     favicon_hash,
@@ -20,7 +20,7 @@ from src.modules.features.themis.lybra.fingerprinting.favicon import (
     murmurhash3_x86_32,
     validate_favicon_hashes,
 )
-from src.modules.features.themis.lybra.fingerprinting.http import fingerprint_http
+from lybra.fingerprinting.http import fingerprint_http
 
 pytestmark = pytest.mark.unit
 
@@ -107,7 +107,7 @@ def test_the_catalog_validator_finds_each_kind_of_breakage():
 def test_the_favicon_only_names_a_product_nobody_else_named(monkeypatch):
     """Un favicon identifica producto y casi nunca versión, así que nunca debe
     desplazar a una lectura que sí la trae."""
-    from src.modules.features.themis.lybra.fingerprinting import http as http_module
+    from lybra.fingerprinting import http as http_module
 
     icon = b"icono-de-jenkins"
     monkeypatch.setattr(
@@ -169,8 +169,8 @@ class _NullRateLimiter:
 
 
 def _probe_with_catalog(monkeypatch, catalog):
-    from src.modules.features.themis.lybra.fingerprinting import http as http_module
-    from src.modules.features.themis.lybra.engine import Service
+    from lybra.fingerprinting import http as http_module
+    from lybra.engine import Service
 
     monkeypatch.setattr(http_module, "_FAVICON_CATALOG", catalog)
     recorder = _RecordingProbe()

@@ -4,8 +4,8 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from src.modules.features.themis.lybra.planner import IDENTIFICATION_REVISION, CheckPlanner, KnownService
-from src.modules.features.themis.lybra.engine import Service
+from lybra.planner import IDENTIFICATION_REVISION, CheckPlanner, KnownService
+from lybra.engine import Service
 
 pytestmark = pytest.mark.unit
 

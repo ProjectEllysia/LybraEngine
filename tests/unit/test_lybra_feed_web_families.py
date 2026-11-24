@@ -10,7 +10,7 @@ plausible que **no** debe.
 
 import pytest
 
-from src.modules.features.themis.lybra.checks import (
+from lybra.checks import (
     CheckRuntime,
     Response,
     Service,
