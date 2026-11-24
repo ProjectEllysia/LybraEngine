@@ -1,0 +1,22 @@
+# Configuración de lybrad (/etc/lybra/lybrad.toml). Todas las claves son opcionales.
+
+[daemon]
+socket = "/run/lybra/lybra.sock"
+socket_group = "lybra"
+max_concurrent_scans = 4
+max_queued_scans = 32
+# Objetivos en redes privadas, de loopback o link-local. Activarlo sólo si el
+# motor tiene que escanear la red interna y nadie no fiable llega al socket.
+allow_private_targets = false
+
+[kb]
+path = "/var/lib/lybra/kb.sqlite"
+# Cada cuántas horas se sincroniza la base de conocimiento; 0 lo desactiva.
+sync_interval_hours = 24
+nvd_window_days = 8
+# La clave de la API de NVD mejor en la variable LYBRA_NVD_API_KEY.
+
+[scan]
+# Cualquier campo de lybra.scanner.ScanSettings, por ejemplo:
+# tcp_concurrency = 200
+# rate_limit_interval = 0.2

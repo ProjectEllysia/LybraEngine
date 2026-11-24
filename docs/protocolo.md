@@ -1,62 +1,65 @@
 # Protocolo de LybraEngine — v1
 
 Este documento es el contrato entre el servicio `lybrad` y quien lo usa: la CLI
-`lybra`, la librería `lybra-client` y, a través de ella, cualquier aplicación
-(EllysiaServer es la primera). Lo que no esté aquí no es contrato.
+`lybra`, el cliente de Python (`lybra.client.LybraClient`) y, a través de él,
+cualquier aplicación (EllysiaServer es la primera). Lo que no esté aquí no es
+contrato.
 
 El motor es **autónomo**: guarda su propia base de conocimiento de
-vulnerabilidades (NVD, CISA KEV y EPSS) y no depende de ninguna aplicación. Lo
-que **no** guarda es la historia de los activos: un escaneo devuelve los
-hallazgos de ese escaneo, y seguir un hallazgo en el tiempo (si es nuevo, si
-sigue abierto, si se corrigió) es trabajo de la aplicación que lo integra.
+vulnerabilidades (NVD, CISA KEV, EPSS y avisos de distribución) y no depende de
+ninguna aplicación. Lo que **no** guarda es la historia de los activos: un
+escaneo devuelve los hallazgos de ese escaneo, y seguir un hallazgo en el
+tiempo (si es nuevo, si sigue abierto, si se corrigió) es trabajo de la
+aplicación que lo integra.
 
 ## 1. Transporte
 
 - **Socket Unix de tipo stream.** Ruta por defecto: `/run/lybra/lybra.sock`;
   se cambia con la variable `LYBRA_SOCKET` en los dos extremos.
 - **Permisos:** el socket se crea con modo `0660` y grupo `lybra`. Quien
-  pertenece al grupo puede lanzar escaneos; nadie más llega al socket. No hay
+  pertenece al grupo puede usar el motor; nadie más llega al socket. No hay
   autenticación adicional: el control de acceso es el del sistema de ficheros.
 - **Sin red a propósito.** El motor sólo escucha en local. Exponerlo a otra
   máquina es decisión del operador (un túnel SSH, un proxy) y queda fuera de
-  este contrato.
+  este contrato. Entre contenedores, el socket se comparte con un volumen.
 
 ## 2. Formato de los mensajes
 
 Cada mensaje es **un objeto JSON en una sola línea**, en UTF-8, terminado en
-`\n` (JSON delimitado por saltos de línea). Una línea no puede superar 16 MiB;
-el servicio cierra la conexión ante una más larga.
+`\n`. Una línea no puede superar 16 MiB; ante una más larga el servicio
+responde `bad_request` y cierra la conexión.
 
 ### Petición
 
 ```json
-{"v": 1, "id": "c-17", "op": "scan.start", "params": {"target": "203.0.113.10"}}
+{"v": 1, "id": "c-17", "op": "scan.start", "params": {"target": "198.51.100.10"}}
 ```
 
 | Campo | Qué es |
 |---|---|
 | `v` | Versión mayor del protocolo. Hoy, `1`. |
-| `id` | Identificador que elige el cliente; la respuesta lo devuelve tal cual para poder emparejarlas. Cadena de hasta 64 caracteres. |
+| `id` | Identificador que elige el cliente, de 1 a 64 caracteres; la respuesta lo devuelve tal cual. |
 | `op` | La operación (ver §3). |
-| `params` | Sus parámetros. Puede omitirse si la operación no tiene. |
+| `params` | Sus parámetros, un objeto. Puede omitirse si la operación no tiene. |
 
 ### Respuesta
 
 ```json
 {"v": 1, "id": "c-17", "ok": true, "result": {"scanId": "…", "status": "queued"}}
-{"v": 1, "id": "c-17", "ok": false, "error": {"code": "invalid_target", "message": "…"}}
+{"v": 1, "id": "c-17", "ok": false, "error": {"code": "invalid_params", "message": "…"}}
 ```
 
 Cada petición recibe **exactamente una** respuesta final. Una conexión puede
-llevar varias peticiones seguidas; el servicio las contesta en orden.
+llevar varias peticiones seguidas; el servicio las contesta en orden. Una
+petición que no se puede leer recibe un error con `id: null` y la conexión
+sigue abierta.
 
 ### Eventos
 
-Las operaciones de seguimiento (`scan.watch`) emiten, antes de su respuesta
-final, cero o más eventos con el mismo `id`:
+`scan.watch` emite, antes de su respuesta final, eventos con el mismo `id`:
 
 ```json
-{"v": 1, "id": "c-18", "event": "progress", "data": {"phase": "fingerprinting", "done": 12, "total": 40}}
+{"v": 1, "id": "c-18", "event": "progress", "data": {"status": "running", "phase": "fingerprint", "done": 3, "total": 8}}
 ```
 
 Un mensaje con `event` nunca es la respuesta final; la respuesta final es el
@@ -64,94 +67,91 @@ primero con `ok`.
 
 ### Claves y valores
 
-- Las claves van en **camelCase**, como en la API de EllysiaServer.
+- Las claves van en **camelCase**.
 - Los instantes son cadenas ISO 8601 en UTC con sufijo `Z`.
-- El cliente **ignora las claves que no conoce**. Añadir una clave a una
-  respuesta no cambia la versión del protocolo; quitarla o cambiar su
-  significado sí (pasa a `v: 2`).
+- El cliente **ignora las claves que no conoce**. Añadir una clave no cambia
+  la versión del protocolo; quitarla o cambiar su significado sí (`v: 2`).
 
 ### Códigos de error
 
 | Código | Cuándo |
 |---|---|
-| `bad_request` | El mensaje no es JSON válido, o le falta `v`, `id` u `op`. |
+| `bad_request` | El mensaje no es JSON válido, no es un objeto, le falta `id` u `op`, o `params` no es un objeto. |
 | `unsupported_version` | `v` no es una versión que el servicio hable. |
 | `unknown_op` | La operación no existe. |
 | `invalid_params` | Faltan parámetros o tienen un valor no válido. |
-| `invalid_target` | El objetivo no es una IP, un nombre o un rango válido. |
-| `target_not_allowed` | El objetivo es una dirección privada y el servicio no las admite (ver §5). |
-| `not_found` | El escaneo, la CVE o el producto pedido no existe. |
-| `busy` | La cola de escaneos está llena; se puede reintentar. |
-| `kb_unavailable` | La base de conocimiento aún no se ha sincronizado nunca. |
-| `internal` | Error no previsto del servicio. El mensaje no expone detalles internos. |
+| `invalid_target` | El objetivo no es una IP ni un nombre de host, o el nombre no resuelve. |
+| `target_not_allowed` | El objetivo es (o resuelve a) una dirección privada, o es un nombre de red interna, y el servicio no los admite (ver §5). |
+| `not_found` | El escaneo, la CVE o el resultado pedido no existe. |
+| `busy` | La cola de escaneos está llena, o ya hay una sincronización en curso. Se puede reintentar. |
+| `internal` | Error no previsto. El mensaje no expone detalles internos; el log del servicio sí. |
 
 ## 3. Operaciones
 
 ### 3.1 Servicio
 
-**`engine.info`** — sin parámetros. Devuelve las versiones del motor y del
-protocolo, la versión de los feeds de checks y el estado de la base de
-conocimiento:
+**`engine.info`** — sin parámetros.
 
 ```json
-{"engineVersion": "0.1.0", "protocolVersions": [1], "checksFeedVersion": "…",
- "kb": {"feedVersion": "…", "lastSyncAt": "…Z", "cveCount": 351204}}
+{"engineVersion": "0.1.0", "protocolVersions": [1], "identificationRevision": "2",
+ "kb": {"feedVersion": "lybra-kb:nvd=2026-11-24,kev=…", "counts": {"cves": 351204, "cpeMatches": …, "kev": …, "epss": …, "distroPkgStatus": …}}}
 ```
 
 ### 3.2 Escaneos de red
 
 Un escaneo es asíncrono: se encola, corre en el servicio y su resultado se
-consulta después. El servicio limita cuántos corren a la vez.
+consulta después. Corren a la vez como mucho `max_concurrent_scans`; los demás
+esperan en cola hasta `max_queued_scans`, y más allá la petición recibe `busy`.
 
 **`scan.start`**
 
 | Parámetro | Tipo | Qué es |
 |---|---|---|
-| `target` | cadena | IP, nombre de host o rango CIDR. Obligatorio. |
-| `profile` | `"fast"` \| `"full"` | Qué puertos se barren. Por defecto `"fast"`. |
-| `ports` | lista de enteros | Puertos concretos; sustituye a `profile`. |
-| `udp` | booleano | Si se barren también los servicios UDP conocidos. Por defecto `false`. |
-| `activeChecks` | booleano | Si se ejecutan los checks activos que confirman vulnerabilidades. Por defecto `true`. |
-| `deep` | booleano | Si se ejecutan los corroboradores profundos (credenciales por defecto, crawler). Por defecto `false`. |
-| `timeoutSeconds` | número | Presupuesto de reloj del escaneo entero. Al agotarse, el resultado sale `partial`. |
-| `knownServices` | lista de `Service` | Lo que la aplicación sabe del objetivo por escaneos anteriores. El planificador lo usa para decidir qué volver a probar; el motor no guarda nada de un escaneo a otro. |
+| `target` | cadena | **Un** host: una IP o un nombre. Obligatorio. Los rangos los expande quien llama. |
+| `profile` | `"fast"` \| `"standard"` \| `"thorough"` | `fast`: los ~100 puertos más comunes, sin rastreo ni checks activos. `standard`: la lista de puertos del motor, con todo. `thorough`: los 65 535 puertos, sin que el planificador se salte nada. Por defecto `standard`. |
+| `ports` | lista de enteros | Puertos TCP concretos; sustituyen a los del perfil. |
+| `timeoutSeconds` | número | Presupuesto de reloj del escaneo entero. Al agotarse, el resultado sale `partial`. Sin él, no hay límite. |
+| `fingerprint` | booleano | Identificar cada servicio sondeándolo. Por defecto `true`. |
+| `crawl` | booleano | Rastrear los servicios web. Por defecto `true` (nunca en `fast`). |
+| `activeChecks` | booleano | Checks activos, superficie de API y sitios con nombre. Por defecto `true` (nunca en `fast`). |
+| `aggressive` | booleano | Permitir los checks que escriben en el objetivo y el motor de credenciales por defecto (logins reales). Por defecto `false`; ignorado en `fast`. |
+| `knownServices` | lista de `KnownService` | Lo que quien llama sabe del objetivo por escaneos anteriores. Un servicio identificado hace menos de 7 días por la revisión actual del motor no se vuelve a sondear (la detección por versión corre igual). Ignorado en `thorough`. |
+| `siteCandidates` | lista de `{name, origin}` | Nombres de sitio que la IP no delata y que quien llama autorizó auditar. Sólo cuenta si el objetivo es una IP. |
 
-Devuelve `{"scanId": "…", "status": "queued"}`.
+Devuelve `{"scanId": "…", "status": "queued"}` (o `running` si ya arrancó).
 
-**`scan.status`** `{scanId}` — devuelve `{"scanId", "status", "progress"}`.
-Los estados son:
+**`scan.status`** `{scanId}` — devuelve `{"scanId", "target", "status",
+"progress": {"phase", "done", "total"}}` y, si falló, `error`. Los estados:
 
 | Estado | Significado |
 |---|---|
 | `queued` | Esperando turno. |
-| `running` | En curso; `progress` dice la fase y el avance. |
+| `running` | En curso; `progress` dice la fase (`discovery`, `fingerprint`, `checks`) y el avance. |
 | `completed` | Terminó y el barrido fue completo. |
-| `partial` | Terminó, pero sin barrer todo: se agotó el presupuesto, o el objetivo dejó de contestar a mitad. **Lo que no aparece en un resultado parcial no se ha comprobado**: la aplicación no debe dar por corregido un hallazgo que falte en él. |
-| `failed` | No pudo hacerse; `error` dice por qué. |
+| `partial` | Terminó sin barrer todo: plazo agotado, barrido inverosímil o un objetivo que dejó de contestar. **Lo que no aparece en un resultado parcial no se ha comprobado**: quien lleva el ciclo de vida no debe dar por corregido un hallazgo que falte. |
+| `failed` | No pudo hacerse. `error.code` es `host_unreachable` (no contestó a la comprobación de alcanzabilidad), `port_discovery_failed` (el barrido quedó bloqueado) o `internal`. |
 | `cancelled` | Se canceló. |
 
 **`scan.watch`** `{scanId}` — emite eventos `progress` hasta que el escaneo
-termina, y responde con lo mismo que `scan.status` en su estado final.
+termina y responde con lo mismo que `scan.status` en su estado final.
 
 **`scan.result`** `{scanId}` — devuelve el `ScanResult` (§4) de un escaneo
-terminado. Los resultados se conservan 24 horas tras terminar.
+terminado. Si falló, responde con su error (`host_unreachable`…); si aún no ha
+terminado, `not_found`. Los escaneos se olvidan 24 horas después de terminar.
 
-**`scan.cancel`** `{scanId}` — cancela un escaneo en cola o en curso.
+**`scan.cancel`** `{scanId}` — cancela un escaneo en cola o en curso y
+devuelve su estado.
 
 ### 3.3 Análisis sin red: CPE y versión
 
-**`analyze`** — devuelve los hallazgos de una lista de servicios **que el
-llamante ya conoce**, sin tocar la red. Es la operación que usa la
-integración con Hygeia: Hygeia lee el software instalado en un equipo
-(producto, versión y, si lo tiene, CPE) y el motor lo cruza con su base de
-conocimiento para decir qué CVE le afectan y cuáles están en KEV o tienen
-exploit. Es síncrona: responde con los hallazgos directamente.
+**`analyze`** — devuelve los hallazgos de una lista de servicios **que quien
+llama ya conoce**, sin tocar la red. Es la operación de la integración con
+Hygeia: un inventario dice qué hay instalado en un equipo y el motor lo cruza
+con su base de conocimiento. Es síncrona.
 
 | Parámetro | Tipo | Qué es |
 |---|---|---|
-| `services` | lista de `Service` | Lo que hay que analizar. Para un paquete instalado basta `product` + `version`, o `cpe` + `version`, con `origin: "inventory"`. Obligatorio, con 1 a 5000 elementos. |
-
-Un ejemplo con un CPE y su versión:
+| `services` | lista de `Service` | De 1 a 5000. Para un paquete instalado basta `product` + `version`, o `cpe` + `version`, con `origin: "inventory"`. |
 
 ```json
 {"v": 1, "id": "c-21", "op": "analyze", "params": {"services": [
@@ -159,99 +159,97 @@ Un ejemplo con un CPE y su versión:
 ]}}
 ```
 
-Devuelve `{"findings": [Finding, …], "kbFeedVersion": "…"}`.
+Un CPE 2.3 se puede escribir corto, como en el ejemplo: los campos que falten
+se dan por `*`. Devuelve `{"findings": [Finding, …], "kbFeedVersion": "…"}`.
 
-Lo que el motor hace con cada servicio:
-
-- Con `origin: "inventory"` la versión se trata como un **hecho** leído del
-  equipo, no como una suposición sacada de un banner: el hallazgo nace
-  `confirmed: true` y con la calidad de detección (`qod`) más alta.
-- Las versiones de paquete de distribución (`1:9.6p1-3ubuntu13.5`) se
-  comparan por su versión de origen y, cuando hay datos de la distribución,
-  se descuentan los parches que ya trae.
-- Si el producto no se puede resolver a un CPE conocido, el servicio no
-  produce hallazgos de versión; aparece en `unresolved` (§4) para que la
-  aplicación sepa qué no se ha podido analizar.
+- Con `origin: "inventory"` la versión es un **hecho** leído del equipo: el
+  hallazgo nace `confirmed: true` y con la calidad de detección más alta.
+- Las versiones de paquete de distribución (`1:9.6p1-3ubuntu13.5`) se comparan
+  por su versión de origen, y los avisos de la distribución se aplican (ver
+  `state` en §4).
+- Un producto que no se puede resolver a un CPE no produce hallazgos de
+  versión, y queda anotado en `kb.unresolved`.
 
 ### 3.4 Base de conocimiento
 
 | Operación | Parámetros | Devuelve |
 |---|---|---|
-| `kb.cve` | `cveId` | El detalle de una CVE: descripción, CVSS, EPSS, si está en KEV, madurez del exploit y los rangos de versiones afectados. `not_found` si no existe. |
-| `kb.version` | `product`, `version` | Las CVE que afectan a esa versión de ese producto (la herramienta «¿Es vulnerable mi versión?»). |
-| `kb.products` | `term`, `limit` (por defecto 20, máximo 100) | Productos conocidos cuyo nombre contiene `term`, como pares `vendor`/`product`. |
-| `kb.resolve` | `names` (lista de cadenas) | Para cada nombre libre («Apache httpd», «nginx»), el par `vendor`/`product` al que corresponde, o `null`. |
-| `kb.advisories` | `products` (lista de pares `vendor`/`product`), `since` (instante, opcional), `limit` | Las CVE publicadas o modificadas para esos productos, de la más reciente a la más antigua. |
-| `kb.status` | — | Estado de cada fuente: última sincronización, filas, último error. |
-| `kb.sync` | `source` (opcional: `nvd`, `kev`, `epss`, `oval`) | Lanza una sincronización en segundo plano y responde al instante. |
+| `kb.cve` | `cveId` | `cveId`, `published`, `cvssScore`, `severity`, `description` (en inglés), `products`, `inKev`, `epssScore`, `epssPercentile`, `distroStatuses`. `not_found` si ninguna fuente la conoce. |
+| `kb.version` | `product`, `version` | `recognized`, `vendor`/`product`/`version` del CPE resuelto, `cves` (hasta 25, las más urgentes primero), `cvesTotal`, `endOfLife`. |
+| `kb.products` | `term`, `limit` (por defecto 20, máximo 100) | `{"products": [{vendor, product, displayName}]}`: los que empiezan por `term`. |
+| `kb.resolve` | `names` (hasta 1000) | `{"products": [{vendor, product}]}`: los nombres que resuelven, sin repetir. |
+| `kb.advisories` | `products` (1 a 200 `{vendor, product}`), `since` (instante, opcional), `minCvss` (opcional), `limit` | `{"advisories": [{cveId, vendor, product, published, severity, cvssScore, description, inKev, epssScore, url}]}`, del más reciente al más antiguo. |
+| `kb.unresolved` | `origin` (`network` \| `inventory`, opcional), `limit` (por defecto 50) | `{"products": [{name, origin, occurrences, firstSeenAt, lastSeenAt}]}`: los nombres que más veces quedaron sin resolver. |
+| `kb.status` | — | `{"sources": [...], "isStale", "isUnverified", "feedVersion"}`, una entrada por fuente con `lastAttemptAt`, `lastSuccessAt`, `rowsUpserted`, `error`, `neverSynced`, `hasContent`, `ageDays`, `maxAgeDays`, `isStale`, `isUnverified`, `newestContentAt`. |
+| `kb.sync` | `source` (`all`, `nvd`, `kev`, `epss`, `oval`; por defecto `all`) | Lanza la sincronización en segundo plano y responde `{"started": true, "source"}` al momento; `busy` si ya hay una en curso. |
 
-Ninguna consulta de la base busca por prefijo ni devuelve listas sin tope.
+Ninguna consulta de la base busca por subcadena ni devuelve listas sin tope.
 
-### 3.5 Inteligencia pasiva
+### 3.5 Reservado
 
-**`osint.domain`** `{domain, sources}` — lo que Certificate Transparency y
-las fuentes de terceros activadas saben de un dominio, **sin contactar con
-ningún equipo del dominio**. Nunca envía a un tercero una dirección privada.
+`osint.domain` (inteligencia pasiva de un dominio) queda para una versión
+posterior: necesita las claves de los servicios de terceros y una caché.
 
 ## 4. Tipos
 
 ### Service
 
-Un servicio de red descubierto o un componente instalado: la unidad de
-entrada del motor.
-
 | Clave | Tipo | Qué es |
 |---|---|---|
-| `port` | entero o `null` | Puerto. `null` en un componente instalado, que no escucha en ninguno. |
+| `port` | entero o `null` | Puerto. `null` en un componente instalado. |
 | `protocol` | `"tcp"` \| `"udp"` \| `""` | Transporte. Vacío en un componente instalado. |
-| `name` | cadena | Nombre del servicio (`"http"`, `"ssh"`). Puede ir vacío. |
-| `product` | cadena | Producto (`"Apache httpd"`). Puede ir vacío. |
-| `version` | cadena | Versión (`"2.4.49"`). Puede ir vacía. |
+| `name` | cadena | Nombre del servicio (`"http"`). |
+| `product` | cadena | Producto (`"Apache httpd"`). |
+| `version` | cadena | Versión (`"2.4.49"`). |
 | `cpe` | cadena o `null` | CPE, en formato 2.2 o 2.3. |
-| `origin` | `"network"` \| `"inventory"` | `network`: deducido de lo que el servicio enseña por la red, una suposición. `inventory`: leído en el propio equipo (gestor de paquetes), un hecho. Por defecto `network`. |
+| `origin` | `"network"` \| `"inventory"` | `network`: deducido de lo que el servicio enseña, una suposición. `inventory`: leído en el propio equipo, un hecho. Por defecto `network`. |
+| `components` | lista de `[producto, versión]` | Sólo en resultados: lo que corre dentro de un servicio web (CMS, librerías). |
+
+`KnownService` es un `Service` con dos claves más: `identifiedAt` (instante en
+que se identificó) e `identifiedBy` (la `identificationRevision` del motor que
+lo hizo).
 
 ### Finding
 
-Un hallazgo. Las claves siempre presentes:
+Las claves siempre presentes: `title`, `category`, `source` (`"lybra"`),
+`checkId`, `feedVersion`, `qod` (0–100: cuánto fiarse de que es real),
+`confirmed`, `state`, y `port`/`protocol`/`service`.
 
-| Clave | Tipo | Qué es |
-|---|---|---|
-| `title` | cadena | Título legible. |
-| `category` | cadena | Familia: `outdated_software`, `open_port`, `misconfiguration`, `default_credentials`, `end_of_life`… |
-| `source` | cadena | `"lybra"`. |
-| `checkId` | cadena | Qué lo produjo, con versión: `lybra:version-match@1`, o el identificador del check. |
-| `feedVersion` | cadena | Versión del feed de checks o de la base de conocimiento que lo produjo. |
-| `qod` | entero 0–100 | Calidad de detección: cuánto fiarse de que el hallazgo es real. |
-| `confirmed` | booleano | Si una prueba activa o un dato de inventario lo confirmó; `false` es una hipótesis. |
-| `state` | `"open"` | Siempre `open` en el resultado de un escaneo; el ciclo de vida es cosa de la aplicación. |
-| `port`, `protocol`, `service` | | El servicio en el que se encontró, como en `Service`. |
+`state` es `open`, salvo que la distribución ya haya publicado la corrección
+del paquete instalado: entonces es `fixed` (un *backport*: el número de versión
+dice vulnerable, pero el parche está).
 
-Y las que aparecen cuando aplican: `severity`, `cpe`, `cpeResolved`,
-`cveIds`, `cvssScore`, `cvssVector`, `epssScore`, `inKev`,
-`exploitMaturity`, `requiredOs`, `evidence`.
+Y las que aparecen cuando aplican: `severity`, `cpe`, `cpeResolved`, `cveIds`,
+`cvssScore`, `cvssVector`, `epssScore`, `inKev`, `exploitMaturity`,
+`requiredOs`, `vhost`, `installedVersion`, `servesDefaultSite`, `evidence`
+(lo que provocó el hallazgo, en bruto: quien lo guarde debe redactarlo).
 
 ### ScanResult
 
 | Clave | Tipo | Qué es |
 |---|---|---|
-| `scanId` | cadena | |
-| `target` | cadena | El objetivo tal como se pidió. |
-| `status` | `"completed"` \| `"partial"` | Ver `scan.status`. |
+| `scanId`, `target` | cadena | |
+| `status` | `"completed"` \| `"partial"` \| `"cancelled"` | Ver `scan.status`. |
 | `startedAt`, `finishedAt` | instante | |
-| `services` | lista de `Service` | Lo que se encontró escuchando. |
+| `services` | lista de `Service` | Lo que se encontró, ya identificado. |
+| `probedServices` | lista de `[puerto, protocolo]` | Los servicios que este escaneo identificó sondeándolos; los que el planificador reutilizó no están. |
+| `identificationRevision` | cadena | La revisión con la que se identificaron; quien guarde la superficie la necesita para `knownServices`. |
 | `findings` | lista de `Finding` | |
-| `unresolved` | lista de cadenas | Productos que no se pudieron resolver a un CPE, y por tanto no se analizaron por versión. |
+| `refutations` | lista | Las marcas de los checks que desmintieron un hallazgo de versión (`refutes`: la CVE). Quien lleva el ciclo de vida las aplica. |
 | `kbFeedVersion` | cadena | Estado de la base de conocimiento con el que se analizó. |
 
 ## 5. Objetivos privados
 
 Por defecto el servicio **rechaza** los objetivos en redes privadas, de
-loopback y link-local (`target_not_allowed`): un motor que escanea lo que le
-pidan, instalado junto a una aplicación web, es una forma de alcanzar la red
-interna desde fuera. Quien quiera escanear su propia red lo activa en la
-configuración del servicio (`allowPrivateTargets`). `analyze` no está afectado:
-no contacta con nada.
+loopback y link-local, los nombres de red interna (`.local`, `.internal`,
+`.lan`…) y los nombres que resuelven a cualquiera de esas direcciones
+(`target_not_allowed`): un motor que escanea lo que le pidan, instalado junto a
+una aplicación web, es una forma de alcanzar la red interna desde fuera. Quien
+quiera escanear su propia red lo activa con `allow_private_targets` o
+`--allow-private-targets`. `analyze` no está afectado: no contacta con nada.
+
+Un objetivo por nombre se fija a la IP que resolvió al validarlo durante todo
+el escaneo, para que un cambio de DNS a mitad no lo desvíe.
 
 La aplicación que integra el motor sigue siendo responsable de decidir qué
-objetivos puede escanear cada usuario; este rechazo es una segunda barrera,
-no la única.
+objetivos puede escanear cada usuario; este rechazo es una segunda barrera.

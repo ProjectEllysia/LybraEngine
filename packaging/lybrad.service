@@ -1,0 +1,36 @@
+# Unidad de systemd de lybrad.
+#
+# Necesita un usuario y un grupo de sistema «lybra»:
+#   sudo useradd --system --home-dir /var/lib/lybra --shell /usr/sbin/nologin lybra
+# Quien vaya a usar el motor entra en el grupo:
+#   sudo usermod -aG lybra <usuario>
+[Unit]
+Description=Lybra, motor de detección de vulnerabilidades
+Documentation=https://github.com/ProjectEllysia/LybraEngine
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lybra
+Group=lybra
+# /run/lybra (el socket) y /var/lib/lybra (la base de conocimiento), creados por systemd.
+RuntimeDirectory=lybra
+RuntimeDirectoryMode=0750
+StateDirectory=lybra
+StateDirectoryMode=0750
+ExecStart=/usr/bin/lybrad
+Restart=on-failure
+RestartSec=5
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+UMask=0007
+
+[Install]
+WantedBy=multi-user.target

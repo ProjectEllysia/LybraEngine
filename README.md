@@ -10,8 +10,9 @@ aplicación puede integrar.
 
 ## Estado
 
-En construcción. Hoy el repositorio contiene el motor completo como librería:
-cada capa de detección y el orquestador que las encadena en un escaneo.
+Funciona como servicio de Linux (`lybrad`) con su línea de órdenes (`lybra`) y
+su base de conocimiento propia. Falta publicar el cliente de Python como
+paquete aparte (`lybra-client`); hoy vive en `lybra.client`.
 
 | Módulo | Qué hace |
 |---|---|
@@ -26,6 +27,8 @@ cada capa de detección y el orquestador que las encadena en un escaneo.
 | `scanner` | La orquestación de un escaneo: plazo, cancelación, permisos y fases en orden. Devuelve lo que vio sin guardar nada. |
 | `correlation` | Deduplicación y puntuación contextual. |
 | `osint`, `dns_hygiene` | Inteligencia pasiva de un dominio. |
+| `protocol`, `service`, `daemon` | El servicio `lybrad`: el formato de los mensajes, las operaciones y el socket. |
+| `client`, `cli` | El cliente de Python y la línea de órdenes `lybra`. |
 | `feeds/` | Checks, firmas, alias de productos y catálogos de fin de vida. |
 
 Lo que falta, en orden:
