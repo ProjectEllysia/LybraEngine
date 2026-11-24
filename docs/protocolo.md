@@ -1,7 +1,7 @@
 # Protocolo de LybraEngine — v1
 
 Este documento es el contrato entre el servicio `lybrad` y quien lo usa: la CLI
-`lybra`, el cliente de Python (`lybra.client.LybraClient`) y, a través de él,
+`lybra`, el cliente de Python (`lybra-client`, en `client/`) y, a través de él,
 cualquier aplicación (EllysiaServer es la primera). Lo que no esté aquí no es
 contrato.
 

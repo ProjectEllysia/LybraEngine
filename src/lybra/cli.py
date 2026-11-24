@@ -20,7 +20,7 @@ import json
 import sys
 from typing import List, Optional
 
-from .client import LybraClient, LybraError
+from lybra_client import LybraClient, LybraError
 
 _SEVERITY_ORDER = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
 
@@ -48,13 +48,11 @@ def _print_findings(findings: List[dict]) -> None:
 
 def _scan(client: LybraClient, arguments) -> int:
     """``lybra scan``: encola un escaneo y, salvo ``--no-wait``, espera y muestra el resultado."""
-    params = {"profile": arguments.profile, "aggressive": arguments.aggressive,
-              "activeChecks": not arguments.no_active_checks}
-    if arguments.ports:
-        params["ports"] = [int(port) for port in arguments.ports.split(",")]
-    if arguments.timeout:
-        params["timeoutSeconds"] = arguments.timeout
-    scan_id = client.scan_start(arguments.target, **params)
+    scan_id = client.scan_start(
+        arguments.target, profile=arguments.profile, aggressive=arguments.aggressive,
+        active_checks=not arguments.no_active_checks,
+        ports=[int(port) for port in arguments.ports.split(",")] if arguments.ports else None,
+        timeout_seconds=arguments.timeout or None)
     if arguments.no_wait:
         print(scan_id)
         return 0

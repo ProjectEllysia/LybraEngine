@@ -17,7 +17,8 @@ RUN groupadd --system --gid "${LYBRA_GID}" lybra \
 WORKDIR /opt/lybra
 COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
-RUN pip install --no-cache-dir . && rm -rf /opt/lybra/src
+COPY client ./client
+RUN pip install --no-cache-dir ./client . && rm -rf /opt/lybra/src /opt/lybra/client
 
 USER lybra
 ENV LYBRA_SOCKET=/run/lybra/lybra.sock \

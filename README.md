@@ -11,8 +11,9 @@ aplicación puede integrar.
 ## Estado
 
 Funciona como servicio de Linux (`lybrad`) con su línea de órdenes (`lybra`) y
-su base de conocimiento propia. Falta publicar el cliente de Python como
-paquete aparte (`lybra-client`); hoy vive en `lybra.client`.
+su base de conocimiento propia. Las aplicaciones lo integran con el cliente de
+Python [`lybra-client`](client/), un paquete aparte con licencia Apache-2.0 y
+sin dependencias.
 
 | Módulo | Qué hace |
 |---|---|
@@ -28,13 +29,55 @@ paquete aparte (`lybra-client`); hoy vive en `lybra.client`.
 | `correlation` | Deduplicación y puntuación contextual. |
 | `osint`, `dns_hygiene` | Inteligencia pasiva de un dominio. |
 | `protocol`, `service`, `daemon` | El servicio `lybrad`: el formato de los mensajes, las operaciones y el socket. |
-| `client`, `cli` | El cliente de Python y la línea de órdenes `lybra`. |
+| `cli` | La línea de órdenes `lybra`. |
+| `client/` | El cliente de Python, `lybra-client`: un paquete aparte que no depende del motor. |
 | `feeds/` | Checks, firmas, alias de productos y catálogos de fin de vida. |
 
-Lo que falta, en orden:
+El contrato entre el servicio y sus clientes está en
+[`docs/protocolo.md`](docs/protocolo.md).
 
-1. El servicio `lybrad` y la CLI `lybra`, con su imagen de Docker.
-2. La librería cliente `lybra-client`.
+## Uso
+
+```bash
+lybrad --kb ./kb.sqlite --socket ./lybra.sock        # el servicio
+export LYBRA_SOCKET=./lybra.sock
+
+lybra info
+lybra scan 198.51.100.10 --profile fast              # espera y muestra los hallazgos
+lybra scan 198.51.100.10 --no-wait                   # sólo encola
+lybra result <scanId> --json
+lybra analyze --cpe cpe:2.3:a:openssl:openssl --version 3.0.1
+lybra kb status
+lybra kb sync --source kev
+```
+
+Por defecto el motor **rechaza objetivos en redes privadas**; para escanear la
+propia red, `lybrad --allow-private-targets`. Con la base vacía, `lybrad`
+sincroniza al arrancar (sin el histórico de NVD; ver más abajo) y después cada
+24 horas. La configuración de ejemplo está en
+[`packaging/lybrad.toml`](packaging/lybrad.toml).
+
+### Como servicio de systemd
+
+```bash
+sudo useradd --system --home-dir /var/lib/lybra --shell /usr/sbin/nologin lybra
+sudo pip install ./client .                           # instala lybrad y lybra
+sudo install -Dm644 packaging/lybrad.service /etc/systemd/system/lybrad.service
+sudo install -Dm644 packaging/lybrad.toml /etc/lybra/lybrad.toml
+sudo systemctl enable --now lybrad
+sudo usermod -aG lybra "$USER"                        # para usar el socket
+```
+
+### Con Docker
+
+```bash
+docker build -t lybra-engine .
+docker run -d --name lybra -v lybra_kb:/var/lib/lybra -v lybra_run:/run/lybra lybra-engine
+docker exec lybra lybra info
+```
+
+Otro contenedor usa el motor montando el volumen `lybra_run` y entrando en el
+grupo del socket (`group_add: ["990"]` en compose).
 
 ## Base de conocimiento
 
@@ -54,17 +97,15 @@ La sincronización diaria sólo trae los últimos días de NVD. El primer llenad
   El script sólo lee de PostgreSQL y al terminar comprueba que cada tabla
   tiene las mismas filas y que el motor responde igual en las dos bases.
 
-El contrato entre el servicio y sus clientes está en
-[`docs/protocolo.md`](docs/protocolo.md).
-
 ## Desarrollo
 
 ```bash
 python -m venv .venv
-.venv/bin/pip install -e '.[dev]'
+.venv/bin/pip install -e ./client -e '.[dev]'     # el motor depende del cliente: va primero
 
 .venv/bin/pytest -n auto                  # suite rápida, con la red sellada
 .venv/bin/pytest -m oracle tests/oracle   # bancos contra contenedores reales (necesita Docker)
+.venv/bin/pytest client/tests             # el cliente, sin el motor
 ```
 
 La suite no sale nunca de loopback: `tests/conftest.py` corta cualquier otra
@@ -72,4 +113,6 @@ conexión al instante, y el limitador de ritmo del motor no duerme.
 
 ## Licencia
 
-[GPL-3.0](LICENSE).
+El motor, [GPL-3.0](LICENSE). El cliente, [Apache-2.0](client/LICENSE): como
+sólo habla con el motor por un socket, una aplicación que lo use no queda sujeta
+a la GPL.
