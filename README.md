@@ -27,7 +27,8 @@ sin dependencias.
 | `kb_queries` | Las consultas desde fuera del escaneo (ficha de una CVE, ¿es vulnerable esta versión?, avisos recientes) y las fases de escaneo que usan la base. |
 | `scanner` | La orquestación de un escaneo: plazo, cancelación, permisos y fases en orden. Devuelve lo que vio sin guardar nada. |
 | `correlation` | Deduplicación y puntuación contextual. |
-| `osint`, `dns_hygiene` | Inteligencia pasiva de un dominio. |
+| `osint`, `dns_hygiene`, `cloud` | Inteligencia pasiva de un dominio, su higiene DNS y la exposición cloud. |
+| `osint_network` | Lo que toca la red en las operaciones anteriores: fuentes de terceros con su caché, DNS y las sondas cloud. |
 | `protocol`, `service`, `daemon` | El servicio `lybrad`: el formato de los mensajes, las operaciones y el socket. |
 | `cli` | La línea de órdenes `lybra`. |
 | `client/` | El cliente de Python, `lybra-client`: un paquete aparte que no depende del motor. |
@@ -49,6 +50,9 @@ lybra result <scanId> --json
 lybra analyze --cpe cpe:2.3:a:openssl:openssl --version 3.0.1
 lybra kb status
 lybra kb sync --source kev
+lybra osint domain example.com                       # subdominios, servicios vistos, higiene DNS
+lybra osint hostnames 198.51.100.10
+lybra cloud probe --resource s3:mi-bucket --subdomain app.example.com
 ```
 
 Por defecto el motor **rechaza objetivos en redes privadas**; para escanear la

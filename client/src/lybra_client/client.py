@@ -37,6 +37,11 @@ DEFAULT_SOCKET = "/run/lybra/lybra.sock"
 #: Tamaño máximo de una línea del protocolo, en bytes.
 MAX_LINE_BYTES = 16 * 1024 * 1024
 
+#: Plazo por defecto (segundos) que el motor da a ``osint.*`` y ``cloud.probe``;
+#: el cliente espera ese plazo más un margen antes de rendirse.
+_PASSIVE_BUDGET_SECONDS = 120
+_PASSIVE_MARGIN_SECONDS = 15
+
 #: Lo que se pasa como ``timeout`` para usar el del cliente.
 _DEFAULT = object()
 
@@ -154,7 +159,8 @@ class LybraClient:
             timeout_seconds: Optional[float] = None, fingerprint: Optional[bool] = None,
             crawl: Optional[bool] = None, active_checks: Optional[bool] = None,
             aggressive: Optional[bool] = None, known_services: Optional[Iterable[Dict[str, Any]]] = None,
-            site_candidates: Optional[Iterable[Dict[str, str]]] = None) -> str:
+            site_candidates: Optional[Iterable[Dict[str, str]]] = None,
+            enrich: Optional[bool] = None) -> str:
         """
         Encola un escaneo de red (``scan.start``).
 
@@ -174,6 +180,10 @@ class LybraClient:
             known_services: Lo que se sabe del objetivo por escaneos
                 anteriores (``Service`` más ``identifiedAt`` e ``identifiedBy``).
             site_candidates: Sitios con nombre autorizados, ``{name, origin}``.
+            enrich: Preguntar a Shodan y Censys (si el motor tiene sus claves)
+                por la IP del objetivo y añadir los CPE que sugieren para los
+                puertos que el motor no identificó. Revela el objetivo a un
+                tercero: sólo con permiso de quien lo posee. Por defecto, no.
 
         Returns:
             str: El identificador del escaneo.
@@ -187,7 +197,8 @@ class LybraClient:
                            ("timeoutSeconds", timeout_seconds), ("fingerprint", fingerprint),
                            ("crawl", crawl), ("activeChecks", active_checks), ("aggressive", aggressive),
                            ("knownServices", list(known_services) if known_services is not None else None),
-                           ("siteCandidates", list(site_candidates) if site_candidates is not None else None)):
+                           ("siteCandidates", list(site_candidates) if site_candidates is not None else None),
+                           ("enrich", enrich)):
             if value is not None:
                 params[key] = value
         return self.call("scan.start", params)["scanId"]
@@ -270,18 +281,99 @@ class LybraClient:
 
     # ------------------------------------------------------------ análisis sin red
 
-    def analyze(self, services: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
+    def analyze(self, services: Iterable[Dict[str, Any]], *, enrich: Optional[bool] = None,
+                target: Optional[str] = None) -> Dict[str, Any]:
         """
         Analiza servicios ya conocidos sin tocar la red (``analyze``).
 
         Args:
             services: Los servicios, con ``product`` o ``cpe`` y ``version``
                 (y ``origin: "inventory"`` si se leyeron del propio equipo).
+            enrich: Preguntar además a las fuentes de terceros por la IP de
+                ``target`` (ver :meth:`scan_start`). Por defecto, no.
+            target: La IP a la que pertenecen los servicios; obligatoria con ``enrich``.
 
         Returns:
             dict: ``findings`` y ``kbFeedVersion``.
         """
-        return self.call("analyze", {"services": list(services)})
+        params: Dict[str, Any] = {"services": list(services)}
+        if enrich is not None:
+            params["enrich"] = enrich
+        if target is not None:
+            params["target"] = target
+        return self.call("analyze", params)
+
+    # ------------------------------------------------------------ inteligencia pasiva y cloud
+
+    def osint_domain(self, domain: str, *, sources: Optional[Iterable[str]] = None,
+                     dkim_selectors: Optional[Iterable[str]] = None,
+                     timeout_seconds: Optional[float] = None) -> Dict[str, Any]:
+        """
+        Reúne lo que fuentes de terceros y el DNS público dicen de un dominio (``osint.domain``).
+
+        Es síncrona: espera hasta ``timeout_seconds`` (120 por defecto) más un margen.
+
+        Args:
+            domain: El dominio.
+            sources: Limita la consulta a estas fuentes (``crtsh``, ``shodan``,
+                ``censys``, ``securitytrails``). Por defecto, las que el motor
+                tiene encendidas y con clave.
+            dkim_selectors: Selectores DKIM que comprobar (hasta 10). Por defecto, ninguno.
+            timeout_seconds: Plazo del motor para toda la consulta.
+
+        Returns:
+            dict: ``domain``, ``sources`` (qué pasó con cada fuente), ``dnsChecks``,
+                ``subdomains``, ``observations`` y ``findings``.
+        """
+        params: Dict[str, Any] = {"domain": domain}
+        for key, value in (("sources", sources), ("dkimSelectors", dkim_selectors)):
+            if value is not None:
+                params[key] = list(value)
+        return self._passive_call("osint.domain", params, timeout_seconds)
+
+    def osint_hostnames(self, address: str, *, timeout_seconds: Optional[float] = None) -> List[str]:
+        """
+        Pide los nombres que Shodan y Censys asocian a una IP (``osint.hostnames``).
+
+        Args:
+            address: La IP; una privada no se consulta.
+            timeout_seconds: Plazo del motor para toda la consulta.
+
+        Returns:
+            list: Los nombres, sin validar; vacía si ninguna fuente está disponible.
+        """
+        return self._passive_call("osint.hostnames", {"address": address}, timeout_seconds)["names"]
+
+    def cloud_probe(self, resources: Optional[Iterable[str]] = None, subdomains: Optional[Iterable[str]] = None,
+                    *, timeout_seconds: Optional[float] = None) -> Dict[str, Any]:
+        """
+        Comprueba recursos cloud y subdominios susceptibles de takeover (``cloud.probe``).
+
+        Toca a terceros: sólo con recursos y dominios que quien llama tiene
+        derecho a comprobar.
+
+        Args:
+            resources: Recursos ``proveedor:identificador`` (``s3:nombre``,
+                ``gcs:nombre``, ``azure:cuenta/contenedor``, ``firebase:proyecto``;
+                hasta 25).
+            subdomains: Subdominios que comprobar (hasta 500).
+            timeout_seconds: Plazo del motor para toda la comprobación.
+
+        Returns:
+            dict: ``resources`` (los canónicos), ``subdomains`` (``{name}``) y ``findings``.
+        """
+        params: Dict[str, Any] = {}
+        for key, value in (("resources", resources), ("subdomains", subdomains)):
+            if value is not None:
+                params[key] = list(value)
+        return self._passive_call("cloud.probe", params, timeout_seconds)
+
+    def _passive_call(self, op: str, params: Dict[str, Any], timeout_seconds: Optional[float]) -> Any:
+        """Llama a una operación síncrona de red, esperando el plazo del motor más un margen."""
+        if timeout_seconds is not None:
+            params["timeoutSeconds"] = timeout_seconds
+        wait = (timeout_seconds or _PASSIVE_BUDGET_SECONDS) + _PASSIVE_MARGIN_SECONDS
+        return self.call(op, params, timeout=None if self.timeout is None else max(self.timeout, wait))
 
     # ------------------------------------------------------------ base de conocimiento
 
@@ -293,7 +385,9 @@ class LybraClient:
             cve_id: La CVE.
 
         Returns:
-            dict: Lo que sabe cada fuente de ella.
+            dict: Lo que sabe cada fuente de ella, con las listas largas (``products``,
+                ``applicability``, ``distroStatuses``) acotadas y sus totales en
+                ``productsTotal``, ``applicabilityTotal`` y ``distroStatusesTotal``.
 
         Raises:
             LybraError: ``not_found`` si ninguna fuente la conoce.

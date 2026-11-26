@@ -20,3 +20,13 @@ nvd_window_days = 8
 # Cualquier campo de lybra.scanner.ScanSettings, por ejemplo:
 # tcp_concurrency = 200
 # rate_limit_interval = 0.2
+
+[osint]
+# Inteligencia pasiva (osint.domain, osint.hostnames y el enriquecimiento de un
+# escaneo). crt.sh no necesita clave; Shodan, Censys y SecurityTrails se omiten
+# sin ella. Las claves, mejor en el entorno del servicio: LYBRA_SHODAN_API_KEY,
+# LYBRA_CENSYS_API_KEY (con la forma "<API ID>:<secreto>") y
+# LYBRA_SECURITYTRAILS_API_KEY.
+# ttl_hours = 24                 # vigencia de la caché de cada fuente
+# request_timeout_seconds = 30
+# enabled_sources = ["crtsh", "shodan", "censys", "securitytrails"]

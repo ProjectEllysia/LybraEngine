@@ -7,7 +7,7 @@ estándar.
 ## Instalación
 
 ```bash
-pip install "lybra-client @ git+https://github.com/ProjectEllysia/LybraEngine@client-v0.1.0#subdirectory=client"
+pip install "lybra-client @ git+https://github.com/ProjectEllysia/LybraEngine@client-v0.2.0#subdirectory=client"
 ```
 
 Hace falta pertenecer al grupo del socket (`lybra`) o, en contenedores, montar
@@ -29,6 +29,11 @@ for finding in result["findings"]:
 analysis = client.analyze([
     {"cpe": "cpe:2.3:a:openssl:openssl", "version": "3.0.1", "origin": "inventory"},
 ])
+
+# Inteligencia pasiva y exposición cloud (síncronas, con plazo; ver el protocolo §3.5).
+client.osint_domain("example.com", dkim_selectors=["selector1"])
+client.osint_hostnames("93.184.216.34")
+client.cloud_probe(["s3:mi-bucket"], ["app.example.com"])
 
 # La base de conocimiento.
 client.kb_cve("CVE-2024-6387")

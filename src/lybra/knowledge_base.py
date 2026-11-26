@@ -18,6 +18,7 @@ Qué hay dentro:
 - Un **índice de nombres de producto** derivado de NVD, para resolver «Apache
   httpd» a ``apache:http_server``.
 - Lo que el motor no logró identificar, y el estado de cada sincronización.
+- La caché de las respuestas de las fuentes de inteligencia pasiva (``osint``).
 
 La lectura y escritura de los feeds (descargar, parsear) está en ``kb``; la
 sincronización que los encadena, en ``kb_sync``. Este módulo sólo guarda y
@@ -129,6 +130,14 @@ CREATE TABLE IF NOT EXISTS unresolved_product (
     first_seen_at   TEXT,
     last_seen_at    TEXT,
     PRIMARY KEY (normalized_name, origin)
+);
+
+CREATE TABLE IF NOT EXISTS osint_cache (
+    source     TEXT NOT NULL,
+    query      TEXT NOT NULL,
+    payload    TEXT NOT NULL,
+    fetched_at TEXT NOT NULL,
+    PRIMARY KEY (source, query)
 );
 
 CREATE TABLE IF NOT EXISTS sync_status (
@@ -622,6 +631,42 @@ class KnowledgeBase:  # pylint: disable=too-many-public-methods
                 "VALUES (?, ?, 1, ?, ?) ON CONFLICT (normalized_name, origin) "
                 "DO UPDATE SET occurrences = occurrences + 1, last_seen_at = excluded.last_seen_at",
                 (normalized_name, origin, now, now))
+
+    def get_osint_cache(self, source: str, query: str) -> Optional[Tuple[object, datetime]]:
+        """
+        Devuelve la respuesta guardada de una fuente de inteligencia pasiva.
+
+        No mira la vigencia: decidir si es demasiado vieja es cosa de quien la
+        pide, que conoce el TTL.
+
+        Args:
+            source: La fuente (``"crtsh"``, ``"shodan"``…).
+            query: Lo consultado (un dominio o una IP).
+
+        Returns:
+            Optional[Tuple[object, datetime]]: El JSON ya decodificado (``None``
+                si la fuente respondió que no sabe nada) y cuándo se descargó,
+                en UTC sin zona; ``None`` si nunca se guardó.
+        """
+        rows = self._rows("SELECT payload, fetched_at FROM osint_cache WHERE source = ? AND query = ?",
+                          (source, query))
+        return (json.loads(rows[0]["payload"]), _to_datetime(rows[0]["fetched_at"])) if rows else None
+
+    def save_osint_cache(self, source: str, query: str, payload: object, fetched_at: datetime) -> None:
+        """
+        Guarda (o sustituye) la respuesta de una fuente de inteligencia pasiva.
+
+        Args:
+            source: La fuente.
+            query: Lo consultado.
+            payload: El JSON decodificado de la respuesta; ``None`` si la fuente
+                respondió que no sabe nada (también se guarda: evita repetir la
+                consulta dentro del TTL).
+            fetched_at: Cuándo se descargó, en UTC sin zona.
+        """
+        with self.transaction() as db:
+            db.execute("INSERT OR REPLACE INTO osint_cache (source, query, payload, fetched_at) "
+                       "VALUES (?, ?, ?, ?)", (source, query, json.dumps(payload), _to_text(fetched_at)))
 
     def top_unresolved_products(self, limit: int = 50, origin: Optional[str] = None) -> List[UnresolvedRecord]:
         """
