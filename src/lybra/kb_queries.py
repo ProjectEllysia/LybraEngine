@@ -187,8 +187,8 @@ def cve_detail(kb: KnowledgeBase, cve_id: str) -> Optional[dict]:
         cve_id: La CVE, en mayúsculas.
 
     Returns:
-        Optional[dict]: ``cveId``, ``published``, ``cvssScore``, ``severity``,
-            ``description``, ``products``, ``cweIds``, ``applicability`` (cada
+        Optional[dict]: ``cveId``, ``published``, ``cvssScore``, ``cvssVector``,
+            ``severity``, ``description``, ``products``, ``cweIds``, ``applicability`` (cada
             regla de NVD con su rango de versiones), ``inKev``, ``epssScore``,
             ``epssPercentile`` y ``distroStatuses``. Una fuente que no la
             conoce deja sus campos vacíos. ``None`` si no la conoce ninguna.
@@ -205,6 +205,7 @@ def cve_detail(kb: KnowledgeBase, cve_id: str) -> Optional[dict]:
         "cveId": cve_id,
         "published": isoformat_utc(cve.published) if cve and cve.published else None,
         "cvssScore": cve.cvss_score if cve else None,
+        "cvssVector": cve.cvss_vector if cve else None,
         "severity": cve.severity if cve else None,
         "description": cve.description if cve else None,
         "products": [{"vendor": vendor, "product": product} for vendor, product in products],

@@ -28,11 +28,18 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
 from . import kb_queries, protocol
-from ._shared import is_private_target, utcnow_naive
+from ._shared import is_private_target, isoformat_utc, utcnow_naive
 from .backports import apply_backport_verdicts
+from .cloud import CloudProbe, parse_cloud_resource
+from .correlation import compute_dedup_key
+from .dns_hygiene import assess_dns_hygiene, is_valid_dkim_selector
 from .kb_queries import KnowledgeBasePhases
 from .kb_sync import SYNC_TARGETS, KnowledgeBaseSync, SyncSettings
 from .knowledge_base import KnowledgeBase
+from .osint import (OsintSource, ServiceObservation, collect_host_names, collect_passive_intelligence,
+                    finding_to_osint_json, normalize_domain)
+from .osint_network import (Deadline, OsintSettings, PassiveNetwork, build_enrichment_findings, build_fetcher,
+                            build_lookup, real_network, source_settings)
 from .planner import IDENTIFICATION_REVISION, CheckPlanner, KnownService
 from .protocol import ProtocolError
 from .scanner import ScanAborted, ScanPhases, ScanRequest, ScanSettings, run_scan
@@ -40,7 +47,7 @@ from .transport import DEFAULT_PORTS
 
 logger = logging.getLogger(__name__)
 
-ENGINE_VERSION = "0.1.3"
+ENGINE_VERSION = "0.2.0"
 
 #: Los puertos del perfil ``fast``: los más comunes, para un escaneo rápido.
 FAST_PORTS = (
@@ -67,6 +74,22 @@ MAX_ANALYZE_SERVICES = 5000
 #: Productos que devuelve como mucho una búsqueda.
 MAX_SEARCH_LIMIT = 100
 
+#: Selectores DKIM que admite como mucho ``osint.domain``: cada uno es una
+#: consulta DNS, y una lista larga sería la fuerza bruta de selectores que la
+#: comprobación rechaza a propósito.
+MAX_DKIM_SELECTORS = 10
+
+#: Recursos y subdominios que admite como mucho ``cloud.probe``; cada uno es una
+#: petición a un tercero o al DNS.
+MAX_CLOUD_RESOURCES = 25
+MAX_CLOUD_SUBDOMAINS = 500
+
+#: Plazo por defecto y máximo (segundos) de las operaciones síncronas de red
+#: (``osint.*`` y ``cloud.probe``), y plazo del enriquecimiento de un escaneo.
+DEFAULT_PASSIVE_BUDGET_SECONDS = 120
+MAX_PASSIVE_BUDGET_SECONDS = 600
+ENRICH_BUDGET_SECONDS = 60
+
 
 @dataclass(frozen=True)
 class ServiceSettings:  # pylint: disable=too-many-instance-attributes
@@ -86,6 +109,7 @@ class ServiceSettings:  # pylint: disable=too-many-instance-attributes
             no volver a sondear un servicio. Por defecto 7.
         scan: Los ajustes del motor (plazos, ritmo, topes).
         sync: Las fuentes de la base de conocimiento y sus umbrales.
+        osint: Las fuentes de inteligencia pasiva, sus claves y sus topes.
     """
 
     max_concurrent_scans: int = 4
@@ -95,6 +119,7 @@ class ServiceSettings:  # pylint: disable=too-many-instance-attributes
     planner_max_age_days: int = 7
     scan: ScanSettings = field(default_factory=ScanSettings)
     sync: SyncSettings = field(default_factory=SyncSettings)
+    osint: OsintSettings = field(default_factory=OsintSettings)
 
 
 class _Job:  # pylint: disable=too-many-instance-attributes
@@ -156,7 +181,8 @@ class EngineService:
 
     def __init__(self, kb: KnowledgeBase, settings: Optional[ServiceSettings] = None,
                  phases_factory: Optional[Callable[[KnowledgeBase, ScanSettings], ScanPhases]] = None,
-                 resolve: Optional[Callable[[str], List[str]]] = None) -> None:
+                 resolve: Optional[Callable[[str], List[str]]] = None,
+                 network_factory: Optional[Callable[[OsintSettings], PassiveNetwork]] = None) -> None:
         """
         Prepara el servicio.
 
@@ -168,11 +194,16 @@ class EngineService:
             resolve: ``nombre -> IPs``, para validar y fijar un objetivo por
                 nombre; ``None`` usa el resolutor del sistema. Sustituible en
                 los tests.
+            network_factory: Construye lo que toca la red en ``osint.*``,
+                ``cloud.probe`` y el enriquecimiento; ``None`` usa la red de
+                verdad (:func:`~lybra.osint_network.real_network`). Sustituible
+                en los tests.
         """
         self.kb = kb
         self.settings = settings or ServiceSettings()
         self._phases_factory = phases_factory or KnowledgeBasePhases
         self._resolve = resolve or _resolve_addresses
+        self._network_factory = network_factory or real_network
         self._jobs: Dict[str, _Job] = {}
         self._jobs_lock = threading.Lock()
         self._pool = ThreadPoolExecutor(max_workers=self.settings.max_concurrent_scans,
@@ -186,6 +217,9 @@ class EngineService:
             "scan.result": self._scan_result,
             "scan.cancel": self._scan_cancel,
             "analyze": self._analyze,
+            "osint.domain": self._osint_domain,
+            "osint.hostnames": self._osint_hostnames,
+            "cloud.probe": self._cloud_probe,
             "kb.cve": self._kb_cve,
             "kb.version": self._kb_version,
             "kb.products": self._kb_products,
@@ -284,6 +318,8 @@ class EngineService:
             planner=planner,
             site_candidates=_site_candidates(params.get("siteCandidates")),
         )
+        # El enriquecimiento pregunta a terceros por la IP del objetivo: sólo si quien llama lo pide.
+        enrich = self._enricher(pinned_address or target) if _flag(params, "enrich", False) else None
         job = _Job(uuid.uuid4().hex, target)
         with self._jobs_lock:
             self._purge_expired()
@@ -291,7 +327,7 @@ class EngineService:
             if waiting >= self.settings.max_queued_scans:
                 raise ProtocolError(protocol.BUSY, "la cola de escaneos está llena; inténtalo más tarde")
             self._jobs[job.scan_id] = job
-        self._pool.submit(self._run_job, job, request)
+        self._pool.submit(self._run_job, job, request, enrich)
         logger.info("Escaneo %s encolado contra %s (perfil %s)", job.scan_id, target, profile)
         return {"scanId": job.scan_id, "status": job.status}
 
@@ -333,15 +369,23 @@ class EngineService:
                                 f"{target} resuelve a una dirección privada y este motor no las admite")
         return addresses[0]
 
-    def _run_job(self, job: _Job, request: ScanRequest) -> None:
-        """Corre un escaneo en un hilo del pool y deja su resultado en el trabajo."""
+    def _run_job(self, job: _Job, request: ScanRequest,
+                 enrich: Optional[Callable[[List[dict]], List[dict]]] = None) -> None:
+        """Corre un escaneo en un hilo del pool y deja su resultado en el trabajo.
+
+        Args:
+            job: El trabajo encolado.
+            request: Qué escanear.
+            enrich: Añade hallazgos de fuentes de terceros a los de la identificación
+                (ver :meth:`_enricher`); ``None`` no consulta a nadie.
+        """
         if job.cancelled.is_set():
             job.update(status="cancelled", finished_at=utcnow_naive(), finished_monotonic=time.monotonic())
             return
         job.update(status="running", started_at=utcnow_naive())
         try:
             outcome = run_scan(request, self._phases_factory(self.kb, self.settings.scan),
-                               cancel_check=job.cancelled.is_set, progress=job)
+                               cancel_check=job.cancelled.is_set, progress=job, enrich=enrich)
             findings = apply_backport_verdicts(outcome.findings, self.kb.distro_package_status,
                                                self.kb.distro_release_for)
             status = "cancelled" if job.cancelled.is_set() else ("partial" if outcome.is_partial else "completed")
@@ -425,7 +469,11 @@ class EngineService:
     # ------------------------------------------------------------ análisis sin red
 
     def _analyze(self, params: dict, _emit) -> dict:
-        """``analyze``: los hallazgos de servicios ya conocidos, sin tocar la red."""
+        """``analyze``: los hallazgos de servicios ya conocidos, sin tocar la red del objetivo.
+
+        Con ``enrich`` pregunta además a las fuentes de terceros por la IP de
+        ``target`` (obligatorio entonces): es lo único que sale del motor.
+        """
         raw = params.get("services")
         if not isinstance(raw, list) or not 0 < len(raw) <= MAX_ANALYZE_SERVICES:
             raise ProtocolError(protocol.INVALID_PARAMS,
@@ -433,15 +481,145 @@ class EngineService:
         services = [protocol.service_from_wire(item) for item in raw]
         findings = kb_queries.engine_for(self.kb).analyze(services)
         apply_backport_verdicts(findings, self.kb.distro_package_status, self.kb.distro_release_for)
+        if _flag(params, "enrich", False):
+            target = _required_text(params, "target").strip()
+            try:
+                address = str(ipaddress.ip_address(target))
+            except ValueError as error:
+                raise ProtocolError(protocol.INVALID_PARAMS, "con 'enrich', 'target' tiene que ser una IP") from error
+            findings = findings + self._enricher(address)(findings)
         return {"findings": protocol.to_wire(findings),
                 "kbFeedVersion": kb_queries.kb_feed_version(self.kb.knowledge_state())}
+
+    # ------------------------------------------------------------ inteligencia pasiva y cloud
+
+    def _enricher(self, address: str) -> Callable[[List[dict]], List[dict]]:
+        """
+        Construye el enriquecimiento pasivo de un objetivo.
+
+        Args:
+            address: La IP del objetivo.
+
+        Returns:
+            Callable: ``hallazgos -> hallazgos nuevos``: los CPE que Shodan o Censys
+                sugieren para los puertos que el motor no identificó. Sin claves
+                configuradas no devuelve nada.
+        """
+        def enrich(findings: List[dict]) -> List[dict]:
+            osint = self.settings.osint
+            fetch = build_fetcher(self.kb, osint, self._network_factory(osint), Deadline(ENRICH_BUDGET_SECONDS))
+            return build_enrichment_findings(address, findings, fetch, source_settings(osint), utcnow_naive())
+        return enrich
+
+    def _passive_budget(self, params: dict) -> Deadline:
+        """El plazo de una operación síncrona de red: ``timeoutSeconds`` o el de por defecto, con tope."""
+        budget = params.get("timeoutSeconds", DEFAULT_PASSIVE_BUDGET_SECONDS)
+        if not isinstance(budget, (int, float)) or isinstance(budget, bool) or budget <= 0:
+            raise ProtocolError(protocol.INVALID_PARAMS, "'timeoutSeconds' tiene que ser un número positivo")
+        return Deadline(min(budget, MAX_PASSIVE_BUDGET_SECONDS))
+
+    def _osint_domain(self, params: dict, _emit) -> dict:
+        """``osint.domain``: lo que fuentes de terceros y el DNS público dicen de un dominio.
+
+        Es síncrona y acotada por un plazo en vez de un trabajo con estado: el
+        motor no recuerda nada de una petición a otra, y quien necesite
+        ejecutarla en segundo plano (con cola, cancelación y reintento) ya tiene
+        su propia cola. El plazo se comprueba entre peticiones: una petición en
+        vuelo puede pasarse lo que dure su propio tiempo de espera.
+        """
+        domain = normalize_domain(_required_text(params, "domain"))
+        if domain is None:
+            raise ProtocolError(protocol.INVALID_PARAMS, "'domain' no es un nombre de dominio válido")
+        selectors = list(dict.fromkeys(item.strip().lower() for item in _text_list(
+            params, "dkimSelectors", MAX_DKIM_SELECTORS)))
+        if not all(is_valid_dkim_selector(selector) for selector in selectors):
+            raise ProtocolError(protocol.INVALID_PARAMS, "'dkimSelectors' trae un selector que no es válido")
+        only = _text_list(params, "sources", len(OsintSource))
+        if unknown := set(only) - {source.value for source in OsintSource}:
+            raise ProtocolError(protocol.INVALID_PARAMS, f"fuentes desconocidas: {', '.join(sorted(unknown))}")
+        deadline = self._passive_budget(params)
+        osint = self.settings.osint
+        network = self._network_factory(osint)
+        fetch, lookup = build_fetcher(self.kb, osint, network, deadline), build_lookup(network, deadline)
+        report = collect_passive_intelligence(
+            domain, fetch, lookup, source_settings(osint, only or None), utcnow_naive(),
+            recent_certificate_days=osint.recent_certificate_days, max_subdomains=osint.max_subdomains,
+            max_host_lookups=osint.max_host_lookups)
+        dns_findings, dns_checks = assess_dns_hygiene(domain, lookup, utcnow_naive(), selectors)
+        return protocol.to_wire({
+            "domain": domain,
+            "sources": [status.to_json() for status in report.source_statuses],
+            "dnsChecks": [check.to_json() for check in dns_checks],
+            "subdomains": [record.to_json() for record in report.subdomains],
+            "observations": [_observation_to_json(observation) for observation in report.observations],
+            "findings": [finding_to_osint_json(finding) for finding in report.findings + dns_findings],
+        })
+
+    def _osint_hostnames(self, params: dict, _emit) -> dict:
+        """``osint.hostnames``: los nombres que Shodan y Censys asocian a una IP («reverse IP» pasivo)."""
+        address = _required_text(params, "address").strip()
+        try:
+            ipaddress.ip_address(address)
+        except ValueError as error:
+            raise ProtocolError(protocol.INVALID_PARAMS, "'address' tiene que ser una IP") from error
+        deadline = self._passive_budget(params)
+        osint = self.settings.osint
+        fetch = build_fetcher(self.kb, osint, self._network_factory(osint), deadline)
+        return {"address": address, "names": collect_host_names(address, fetch, source_settings(osint))}
+
+    def _cloud_probe(self, params: dict, _emit) -> dict:  # pylint: disable=too-many-locals
+        """``cloud.probe``: ¿exponen su contenido unos recursos cloud, o son takeover unos subdominios?
+
+        Quien llama decide qué es suyo y qué puede comprobar (igual que con un
+        escaneo); el motor sólo se niega a hacer peticiones a nombres que
+        resuelvan a una dirección privada cuando el servicio no las admite.
+        """
+        resources = []
+        for raw in _text_list(params, "resources", MAX_CLOUD_RESOURCES):
+            resource = parse_cloud_resource(raw)
+            if resource is None:
+                raise ProtocolError(protocol.INVALID_PARAMS, f"recurso cloud no válido: {raw!r}")
+            if resource not in resources:
+                resources.append(resource)
+        names = []
+        for raw in _text_list(params, "subdomains", MAX_CLOUD_SUBDOMAINS):
+            name = normalize_domain(raw)
+            if name is None:
+                raise ProtocolError(protocol.INVALID_PARAMS, f"subdominio no válido: {raw!r}")
+            if name not in names:
+                names.append(name)
+        if not resources and not names:
+            raise ProtocolError(protocol.INVALID_PARAMS, "hace falta al menos un recurso o un subdominio")
+        deadline = self._passive_budget(params)
+        network = self._network_factory(self.settings.osint)
+
+        def get(host: str, port: int, path: str):
+            if deadline.is_expired:
+                return None
+            addresses = self._resolve(host)
+            if not addresses or (not self.settings.allow_private_targets
+                                 and any(is_private_target(address) for address in addresses)):
+                return None
+            return network.http_get(host, port, path)
+
+        probe = CloudProbe(get, lambda name: None if deadline.is_expired else network.resolve_cname(name))
+        found = [probe.probe_resource(resource) for resource in resources]
+        found += [probe.probe_subdomain(name) for name in names]
+        observed_at = isoformat_utc(utcnow_naive())
+        findings = []
+        for finding in (item for item in found if item is not None):
+            finding["dedup_key"] = compute_dedup_key({**finding, "host_id": None})
+            finding["provenance"] = {"source": "cloud", "observedAt": observed_at}
+            findings.append(finding)
+        return protocol.to_wire({"resources": [resource.canonical for resource in resources],
+                                 "subdomains": [{"name": name} for name in names], "findings": findings})
 
     # ------------------------------------------------------------ base de conocimiento
 
     def _kb_cve(self, params: dict, _emit) -> dict:
-        """``kb.cve``: la ficha de una CVE."""
+        """``kb.cve``: la ficha de una CVE, con sus listas acotadas."""
         cve_id = _required_text(params, "cveId").strip().upper()
-        detail = kb_queries.cve_detail(self.kb, cve_id)
+        detail = kb_queries.public_cve_detail(self.kb, cve_id)
         if detail is None:
             raise ProtocolError(protocol.NOT_FOUND, f"la base de conocimiento no sabe nada de {cve_id}")
         return detail
@@ -543,6 +721,24 @@ def _required_text(params: dict, name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ProtocolError(protocol.INVALID_PARAMS, f"falta '{name}'")
     return value
+
+
+def _text_list(params: dict, name: str, maximum: int) -> List[str]:
+    """Devuelve el parámetro ``name`` como lista de cadenas de a lo sumo ``maximum``; vacía si falta."""
+    value = params.get(name)
+    if value is None:
+        return []
+    if not isinstance(value, list) or len(value) > maximum or not all(isinstance(item, str) for item in value):
+        raise ProtocolError(protocol.INVALID_PARAMS, f"'{name}' tiene que ser una lista de hasta {maximum} cadenas")
+    return value
+
+
+def _observation_to_json(observation: ServiceObservation) -> dict:
+    """Un servicio que una fuente de terceros vio abierto, en camelCase."""
+    return {"source": observation.source.value, "address": observation.address, "port": observation.port,
+            "protocol": observation.protocol, "product": observation.product, "version": observation.version,
+            "cpe": observation.cpe, "observed_at": observation.observed_at,
+            "retrieved_at": observation.retrieved_at}
 
 
 def _flag(params: dict, name: str, default: bool) -> bool:

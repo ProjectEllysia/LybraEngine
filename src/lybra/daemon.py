@@ -8,7 +8,8 @@ El socket se crea con permisos ``0660`` y, si existe, con el grupo ``lybra``:
 quien pertenece al grupo puede usar el motor y nadie más llega al socket.
 
 La configuración sale, por orden de prioridad, de los argumentos, de las
-variables de entorno (``LYBRA_SOCKET``, ``LYBRA_KB``, ``LYBRA_NVD_API_KEY``) y de
+variables de entorno (``LYBRA_SOCKET``, ``LYBRA_KB``, ``LYBRA_NVD_API_KEY``,
+``LYBRA_SHODAN_API_KEY``, ``LYBRA_CENSYS_API_KEY``, ``LYBRA_SECURITYTRAILS_API_KEY``) y de
 un fichero TOML (``/etc/lybra/lybrad.toml`` o el de ``--config``)::
 
     [daemon]
@@ -25,6 +26,10 @@ un fichero TOML (``/etc/lybra/lybrad.toml`` o el de ``--config``)::
 
     [scan]                        # cualquier campo de lybra.scanner.ScanSettings
     tcp_concurrency = 200
+
+    [osint]                       # cualquier campo de lybra.osint_network.OsintSettings
+    ttl_hours = 24                # (las claves de API, mejor en el entorno)
+    enabled_sources = ["crtsh", "shodan", "censys", "securitytrails"]
 """
 
 from __future__ import annotations
@@ -46,6 +51,8 @@ from . import protocol
 from .kb_sync import SyncSettings
 from .knowledge_base import KnowledgeBase
 from .protocol import ProtocolError
+from .osint import OsintSource
+from .osint_network import OsintSettings
 from .scanner import ScanSettings
 from .service import EngineService, ServiceSettings
 
@@ -173,6 +180,7 @@ def build_service_settings(config: dict, allow_private: Optional[bool] = None) -
     sync = SyncSettings(nvd_window_days=kb.get("nvd_window_days", 8),
                         nvd_api_key=os.environ.get("LYBRA_NVD_API_KEY") or kb.get("nvd_api_key"))
     return ServiceSettings(
+        osint=_build_osint_settings(config.get("osint", {})),
         max_concurrent_scans=daemon.get("max_concurrent_scans", 4),
         max_queued_scans=daemon.get("max_queued_scans", 32),
         allow_private_targets=allow_private if allow_private is not None
@@ -180,6 +188,35 @@ def build_service_settings(config: dict, allow_private: Optional[bool] = None) -
         scan=ScanSettings(**scan),
         sync=sync,
     )
+
+
+def _build_osint_settings(osint: dict) -> OsintSettings:
+    """
+    Construye los ajustes de la inteligencia pasiva desde ``[osint]`` y el entorno.
+
+    Args:
+        osint: La sección ``[osint]`` del fichero (vacía si no está). Sus claves
+            son los campos de ``OsintSettings`` y, para las claves de API,
+            ``<fuente>_api_key``; la variable ``LYBRA_<FUENTE>_API_KEY`` manda
+            sobre el fichero.
+
+    Returns:
+        OsintSettings: Los ajustes.
+
+    Raises:
+        SystemExit: Si ``[osint]`` trae una clave desconocida.
+    """
+    keys = {f"{source.value}_api_key": source.value for source in OsintSource}
+    fields = {item.name for item in dataclasses.fields(OsintSettings)} - {"api_keys"}
+    unknown = set(osint) - fields - set(keys)
+    if unknown:
+        raise SystemExit(f"claves desconocidas en [osint]: {', '.join(sorted(unknown))}")
+    api_keys = {source: os.environ.get(f"LYBRA_{source.upper()}_API_KEY") or osint.get(key) or ""
+                for key, source in keys.items()}
+    values = {name: osint[name] for name in fields if name in osint}
+    if "enabled_sources" in values:
+        values["enabled_sources"] = tuple(values["enabled_sources"])
+    return OsintSettings(**values, api_keys={source: key for source, key in api_keys.items() if key})
 
 
 def _periodic_sync(service: EngineService, interval_hours: float, stop: threading.Event) -> None:

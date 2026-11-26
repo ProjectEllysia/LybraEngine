@@ -93,7 +93,7 @@ primero con `ok`.
 **`engine.info`** — sin parámetros.
 
 ```json
-{"engineVersion": "0.1.0", "protocolVersions": [1], "identificationRevision": "2",
+{"engineVersion": "0.2.0", "protocolVersions": [1], "identificationRevision": "2",
  "kb": {"feedVersion": "lybra-kb:nvd=2026-11-24,kev=…", "counts": {"cves": 351204, "cpeMatches": …, "kev": …, "epss": …, "distroPkgStatus": …}}}
 ```
 
@@ -117,6 +117,7 @@ esperan en cola hasta `max_queued_scans`, y más allá la petición recibe `busy
 | `aggressive` | booleano | Permitir los checks que escriben en el objetivo y el motor de credenciales por defecto (logins reales). Por defecto `false`; ignorado en `fast`. |
 | `knownServices` | lista de `KnownService` | Lo que quien llama sabe del objetivo por escaneos anteriores. Un servicio identificado hace menos de 7 días por la revisión actual del motor no se vuelve a sondear (la detección por versión corre igual). Ignorado en `thorough`. |
 | `siteCandidates` | lista de `{name, origin}` | Nombres de sitio que la IP no delata y que quien llama autorizó auditar. Sólo cuenta si el objetivo es una IP. |
+| `enrich` | booleano | Enriquecimiento pasivo (ver §3.6): al terminar la identificación, el motor pregunta a Shodan y Censys por la IP del objetivo y añade, como hallazgos `passive_exposure`, los CPE que sugieren para los puertos que no identificó. Necesita sus claves en el motor; sin ellas no añade nada. Revela el objetivo a un tercero, así que va apagado: lo decide quien lleva el escaneo. Por defecto `false`. |
 
 Devuelve `{"scanId": "…", "status": "queued"}` (o `running` si ya arrancó).
 
@@ -152,6 +153,8 @@ con su base de conocimiento. Es síncrona.
 | Parámetro | Tipo | Qué es |
 |---|---|---|
 | `services` | lista de `Service` | De 1 a 5000. Para un paquete instalado basta `product` + `version`, o `cpe` + `version`, con `origin: "inventory"`. |
+| `enrich` | booleano | Enriquecimiento pasivo, como en `scan.start` (§3.6). Por defecto `false`. |
+| `target` | cadena | La IP a la que pertenecen los servicios. Obligatoria con `enrich`: es la dirección por la que se pregunta a las fuentes. |
 
 ```json
 {"v": 1, "id": "c-21", "op": "analyze", "params": {"services": [
@@ -174,7 +177,7 @@ se dan por `*`. Devuelve `{"findings": [Finding, …], "kbFeedVersion": "…"}`.
 
 | Operación | Parámetros | Devuelve |
 |---|---|---|
-| `kb.cve` | `cveId` | `cveId`, `published`, `cvssScore`, `severity`, `description` (en inglés), `cweIds`, `products`, `applicability` (cada regla de NVD: `vendor`, `product`, `versionStartIncluding`, `versionStartExcluding`, `versionEndIncluding`, `versionEndExcluding`, `exactVersion`, `requiredOs`), `inKev`, `epssScore`, `epssPercentile`, `distroStatuses`. `not_found` si ninguna fuente la conoce. |
+| `kb.cve` | `cveId` | `cveId`, `published`, `cvssScore`, `cvssVector`, `severity`, `description` (en inglés), `cweIds`, `products`, `applicability` (cada regla de NVD: `vendor`, `product`, `versionStartIncluding`, `versionStartExcluding`, `versionEndIncluding`, `versionEndExcluding`, `exactVersion`, `requiredOs`), `inKev`, `epssScore`, `epssPercentile`, `distroStatuses`. `products`, `applicability` y `distroStatuses` traen como mucho 50 entradas y sus totales van en `productsTotal`, `applicabilityTotal` y `distroStatusesTotal`. `not_found` si ninguna fuente la conoce. |
 | `kb.version` | `product`, `version` | `recognized`, `vendor`/`product`/`version` del CPE resuelto, `cves` (hasta 25, las más urgentes primero), `cvesTotal`, `endOfLife`. |
 | `kb.products` | `term`, `limit` (por defecto 20, máximo 100) | `{"products": [{vendor, product, displayName}]}`: los que empiezan por `term`. |
 | `kb.resolve` | `names` (hasta 1000) | `{"products": [{vendor, product}]}`: los nombres que resuelven, sin repetir. |
@@ -185,10 +188,82 @@ se dan por `*`. Devuelve `{"findings": [Finding, …], "kbFeedVersion": "…"}`.
 
 Ninguna consulta de la base busca por subcadena ni devuelve listas sin tope.
 
-### 3.5 Reservado
+### 3.5 Inteligencia pasiva y exposición cloud
 
-`osint.domain` (inteligencia pasiva de un dominio) queda para una versión
-posterior: necesita las claves de los servicios de terceros y una caché.
+Tres operaciones **síncronas** que salen a Internet por cuenta de quien llama.
+No son trabajos con estado, como los escaneos: el motor no recuerda nada de una
+petición a otra, y quien quiera ejecutarlas en segundo plano (con cola,
+cancelación y reintento) ya tiene su propia cola. En su lugar llevan un plazo,
+`timeoutSeconds` (por defecto 120, máximo 600), que el motor comprueba entre
+petición y petición: lo que no llegó a consultar queda como fuente caída
+(`failed`) o como comprobación DNS indeterminada, nunca como «limpio». Una
+petición en vuelo puede pasarse lo que dure su propia espera (30 s por
+defecto). El cliente espera ese plazo más un margen.
+
+Las claves de las fuentes de terceros (`LYBRA_SHODAN_API_KEY`,
+`LYBRA_CENSYS_API_KEY` con la forma `<API ID>:<secreto>`,
+`LYBRA_SECURITYTRAILS_API_KEY`) son del servicio y nunca viajan en una petición.
+crt.sh no necesita clave; una fuente que la necesita y no la tiene se omite
+(`outcome: "skipped"`). El motor guarda las respuestas de cada fuente en su base
+de conocimiento y las reutiliza durante `ttl_hours` (24 por defecto, ajustable en
+`[osint]`); un fallo no se guarda.
+
+**`osint.domain`** — lo que las fuentes de terceros y el DNS público dicen de un
+dominio. No contacta con ningún equipo del dominio.
+
+| Parámetro | Tipo | Qué es |
+|---|---|---|
+| `domain` | cadena | El dominio (no una IP ni una URL). Obligatorio. |
+| `sources` | lista de cadenas | Limita la consulta a `crtsh`, `shodan`, `censys` o `securitytrails`. Por defecto, las que el motor tiene encendidas. |
+| `dkimSelectors` | lista de cadenas | De 0 a 10 selectores DKIM que comprobar. Sin ellos DKIM no se comprueba: adivinar selectores sería fuerza bruta. |
+| `timeoutSeconds` | número | El plazo descrito arriba. |
+
+Devuelve:
+
+| Clave | Qué es |
+|---|---|
+| `domain` | El dominio normalizado (minúsculas, IDNA, sin punto final). |
+| `sources` | Qué pasó con cada fuente, en el orden `crtsh`, `shodan`, `censys`, `securitytrails`: `{source, label, outcome, retrievedAt, cached, detail}`. `outcome`: `ok`, `partial`, `disabled`, `skipped` (falta la clave) o `failed`. `detail` es un motivo corto, nunca el texto de un error. |
+| `dnsChecks` | `{check, status}` de SPF, DMARC, DKIM, MTA-STS, CAA y DNSSEC. |
+| `subdomains` | `{name, sources, firstSeenAt, lastSeenAt}`, ordenados por nombre. |
+| `observations` | Lo que Shodan o Censys vieron abierto en las direcciones del dominio: `{source, address, port, protocol, product, version, cpe, observedAt, retrievedAt}`. Es la palabra de un tercero, con la fecha que él le puso. |
+| `findings` | Hallazgos de higiene DNS (`dns_hygiene`) y de exposición pasiva (`passive_exposure`), con la forma de un `Finding` más `provenance` (`source`, `label`, `observedAt`, `retrievedAt`, `ageDays`…). |
+
+**`osint.hostnames`** `{address, timeoutSeconds?}` — los nombres que Shodan y
+Censys asocian a una IP («reverse IP» pasivo). Devuelve `{"address", "names"}`:
+los nombres sin validar y sin repetir; vacía si la IP es privada (no se pregunta
+por ella: revelaría la red interna) o ninguna fuente está disponible.
+
+**`cloud.probe`** — pregunta, de forma anónima, si unos recursos cloud exponen su
+contenido y si unos subdominios apuntan a un servicio que ya no los aloja
+(*takeover*). **Toca a terceros**: quien llama decide qué es suyo y qué puede
+comprobar, igual que con un escaneo; el motor sólo se niega (sin respuesta, no
+error) a pedir a un nombre que resuelva a una dirección privada cuando el
+servicio no las admite (§5).
+
+| Parámetro | Tipo | Qué es |
+|---|---|---|
+| `resources` | lista de cadenas | De 0 a 25 recursos `proveedor:identificador`: `s3:nombre`, `gcs:nombre`, `azure:cuenta/contenedor`, `firebase:proyecto`. Uno inválido es `invalid_params`. |
+| `subdomains` | lista de cadenas | De 0 a 500 subdominios que comprobar. El motor no enumera nombres: sólo mira los que se le dan. |
+| `timeoutSeconds` | número | El plazo descrito arriba. |
+
+Hace falta al menos un recurso o un subdominio. Devuelve `resources` (los
+recursos en su forma canónica y sin repetir), `subdomains` (`{name}`, los
+comprobados) y `findings`: uno por recurso abierto o subdominio reclamable, con
+`checkId` (`cloud-s3-public-bucket`, `cloud-takeover-<servicio>`…), `severity`,
+`dedupKey` y `provenance` (`{"source": "cloud", "observedAt"}`). Sin hallazgos
+no hay entrada: un recurso privado o inexistente no se reporta.
+
+### 3.6 Enriquecimiento pasivo de un análisis
+
+`scan.start` y `analyze` aceptan `enrich: true`. El motor toma la IP del
+objetivo (la fijada, si era un nombre; `target`, en `analyze`) y, **sólo si hay
+algún puerto que no identificó** (`category: "open_port"`, `cpeResolved:
+false`), pregunta a Shodan y Censys por ella. Añade un hallazgo
+`lybra:osint-suggested-cpe@1` por cada puerto en el que la fuente propone un CPE
+sin ambigüedad. Es una sugerencia ajena, con `provenance` y `confirmed: false`:
+no dispara correlación de CVE. Una IP privada no se consulta, y un fallo de las
+fuentes no rompe el análisis. El enriquecimiento tiene un plazo propio de 60 s.
 
 ## 4. Tipos
 
