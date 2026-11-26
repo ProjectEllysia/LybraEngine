@@ -153,3 +153,15 @@ def test_the_robots_finding_says_what_the_entries_are_without_calling_them_sensi
     assert [finding["title"] for finding in findings] == [
         "robots.txt declara 1 ruta(s) que pide no indexar: /backup/"]
     assert _crawl_findings(Service(port=80, protocol="tcp", name="http"), CrawlResult()) == []
+
+
+def test_a_cancel_stops_the_crawl_between_pages():
+    pages = {f"/p{i}": (200, f'<a href="/p{i + 1}">next</a>', {}) for i in range(100)}
+    pages["/"] = (200, '<a href="/p0">start</a>', {})
+    fetch, calls = _server(pages)
+
+    result = crawl(HOST, PORT, fetch, max_pages=50, max_depth=100,
+                   cancel_check=lambda: len(calls) >= 4)
+
+    assert len(calls) == 4
+    assert result.pages_fetched <= 4

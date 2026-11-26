@@ -1656,6 +1656,18 @@ _TLS_RULES: Dict[str, Callable] = {
 }
 
 
+class _ScanCancelled(BaseException):
+    """Señal interna: el escaneo se canceló o agotó su plazo y no hay que pedir nada más.
+
+    Hereda de ``BaseException`` a propósito: un plugin ``script`` o un
+    ``except Exception`` de dentro de una sonda no deben tragársela y seguir
+    trabajando. La recoge :meth:`CheckRuntime._run_for_service`, que devuelve lo
+    ya hallado; nunca sale del runtime. Como se lanza **antes** de la petición,
+    no hay respuesta ausente que alguien pueda interpretar como un fallo del
+    objetivo, ni se cuenta nada al limitador.
+    """
+
+
 @dataclass(frozen=True)
 class ScriptContext:
     """The restricted API a ``type: "script"`` plugin runs against.
@@ -1691,6 +1703,9 @@ class ScriptContext:
             runtime lo adjunta como evidencia ``kind="script"`` cuando la
             captura está activada y el hallazgo es confirmado. Un plugin que no
             lo toca no cambia nada.
+        cancel_check: Dice si el escaneo se canceló o agotó su plazo; el
+            plugin no la consulta, lo hace :meth:`acquire` por él antes de cada
+            intercambio de red. Por defecto ``None`` (no se cancela).
     """
     target: str
     service: Service
@@ -1698,9 +1713,16 @@ class ScriptContext:
     mode: str = "safe"
     sibling_services: tuple = ()
     evidence: dict = field(default_factory=dict)
+    cancel_check: Optional[Callable[[], bool]] = None
 
     def acquire(self) -> None:
-        """Respect the host's rate limit before touching the network."""
+        """Respeta el límite de ritmo del host antes de tocar la red.
+
+        Si el escaneo ya está cancelado corta el plugin entero antes del
+        intercambio (lanza :class:`_ScanCancelled`, que el runtime recoge).
+        """
+        if self.cancel_check is not None and self.cancel_check():
+            raise _ScanCancelled()
         if self.rate_limiter is not None:
             self.rate_limiter.acquire(self.target)
 
@@ -2052,33 +2074,46 @@ class CheckRuntime:
             service: El servicio a evaluar.
 
         Returns:
-            Los hallazgos de ese servicio, en el orden del feed. Vacíos si la
-            cancelación llegó antes de tocar este servicio: como en el
-            fingerprinting, las unidades ya lanzadas terminan pero las que aún
-            no han arrancado devuelven de inmediato.
+            Los hallazgos de ese servicio, en el orden del feed. Si la
+            cancelación llega a mitad, los que ya se habían obtenido; vacíos si
+            llegó antes de tocar este servicio: la unidad se detiene en la
+            siguiente petición, no al terminar todos sus checks.
         """
-        if getattr(self, "_cancel_check", None) is not None and self._cancel_check():
-            return []
         findings: List[dict] = []
-        for family in self._families:
-            if not family.applies_to_service(service):
-                continue
-            for check in self._checks:
-                if not family.check_matches(check, service):
+        try:
+            self._raise_if_cancelled()
+            for family in self._families:
+                if not family.applies_to_service(service):
                     continue
-                # Un confirmador nunca corre "por si acaso": sólo si el matcher
-                # de versiones ya propuso su CVE para este escaneo. Es lo que lo
-                # distingue de un check normal — corre porque la KB dijo algo.
-                if check.confirms and check.confirms not in self._proposed_cves:
-                    continue
-                # Un refutador sigue la misma regla, por la misma razón: sólo
-                # hay algo que desmentir si la versión lo propuso.
-                if check.refutes and check.refutes not in self._proposed_cves:
-                    continue
-                finding = family.run_check(check, self._host, service)
-                if finding is not None:
-                    findings.append(finding)
+                for check in self._checks:
+                    if not family.check_matches(check, service):
+                        continue
+                    # Un confirmador nunca corre "por si acaso": sólo si el matcher
+                    # de versiones ya propuso su CVE para este escaneo. Es lo que lo
+                    # distingue de un check normal — corre porque la KB dijo algo.
+                    if check.confirms and check.confirms not in self._proposed_cves:
+                        continue
+                    # Un refutador sigue la misma regla, por la misma razón: sólo
+                    # hay algo que desmentir si la versión lo propuso.
+                    if check.refutes and check.refutes not in self._proposed_cves:
+                        continue
+                    self._raise_if_cancelled()
+                    finding = family.run_check(check, self._host, service)
+                    if finding is not None:
+                        findings.append(finding)
+        except _ScanCancelled:
+            pass
         return findings
+
+    def _raise_if_cancelled(self) -> None:
+        """Lanza :class:`_ScanCancelled` si el escaneo se canceló o agotó su plazo.
+
+        Se llama antes de cada check y antes de cada petición de red, de modo
+        que el escaneo se detiene tras, como mucho, la petición ya en vuelo.
+        """
+        cancel_check = getattr(self, "_cancel_check", None)
+        if cancel_check is not None and cancel_check():
+            raise _ScanCancelled()
 
     def _applies(self, check: Check, service: Service) -> bool:
         """Return whether an ``http`` check should run against a service in the current mode.
@@ -2346,6 +2381,11 @@ class CheckRuntime:
         del código que sea, es un objetivo que contesta. Una respuesta sacada
         de la caché no se cuenta: no ha tocado la red.
 
+        Si el escaneo se cancela antes de que la petición salga, lanza
+        :class:`_ScanCancelled` en vez de devolver ``None``: una petición que
+        no se hizo no es un objetivo que no contesta, así que ni se cachea ni
+        se le cuenta al limitador.
+
         Args:
             host: El host destino.
             service: El servicio al que va la petición.
@@ -2362,8 +2402,10 @@ class CheckRuntime:
         key = (host, service.port, method, path, body, header_key)
         if key in self._responses:
             return self._responses[key]
+        self._raise_if_cancelled()
         if self._rl is not None:
             self._rl.acquire(host)
+            self._raise_if_cancelled()
         if body is None and headers is None:
             response = self._fetch(host, service.port, method, path)
         else:
@@ -2413,8 +2455,10 @@ class CheckRuntime:
         key = (host, service.port)
         if key in self._handshakes:
             return self._handshakes[key]
+        self._raise_if_cancelled()
         if self._rl is not None:
             self._rl.acquire(host)
+            self._raise_if_cancelled()
         # FTP, SMTP, IMAP y POP3 en claro cifran a mitad de sesión: su
         # certificado, su versión y su cifrado se auditan igual que los de un
         # HTTPS, pero hay que pedir el paso a TLS primero.
@@ -2472,8 +2516,10 @@ class CheckRuntime:
             Optional[dict]: El hallazgo si todas las peticiones casaron, o
                 ``None`` si alguna no lo hizo o la conexión no se abrió.
         """
+        self._raise_if_cancelled()
         if self._rl is not None:
             self._rl.acquire(host)
+            self._raise_if_cancelled()
         session = self._network_open(host, service.port)
         _report_outcome(self._rl, host, has_answered=session is not None)
         if session is None:
@@ -2484,6 +2530,7 @@ class CheckRuntime:
                 # lines, and a single-line one ends the block immediately.
                 session.exchange(None, read="block")
             for request in check.requests:
+                self._raise_if_cancelled()
                 response = session.exchange(request.send, read=request.read)
                 if response is None or not request.evaluate(response):
                     return None
@@ -2510,6 +2557,7 @@ class CheckRuntime:
             rate_limiter=self._rl,
             mode=self._mode,
             sibling_services=self._services,
+            cancel_check=getattr(self, "_cancel_check", None),
         )
         try:
             fired = plugin.run(context)

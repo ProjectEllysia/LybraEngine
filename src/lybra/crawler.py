@@ -121,6 +121,7 @@ def crawl(
     max_depth: int = 3,
     time_budget_seconds: float = 20.0,
     now: Callable[[], float] = time.monotonic,
+    cancel_check: Optional[Callable[[], bool]] = None,
 ) -> CrawlResult:
     """Rastrea el sitio en ``host:port`` de sólo lectura y con presupuesto.
 
@@ -138,6 +139,10 @@ def crawl(
         max_depth: Profundidad máxima de enlaces desde la raíz.
         time_budget_seconds: Tope de tiempo del rastreo entero, en segundos.
         now: Reloj monótono inyectable, para que el test controle el tiempo.
+        cancel_check: Dice si el escaneo se canceló o agotó su plazo; se
+            consulta antes de cada página y, al ser ``True``, el rastreo se
+            detiene y devuelve lo visto hasta ahí. Por defecto ``None`` (no se
+            cancela).
 
     Returns:
         Un :class:`CrawlResult`. Vacío (con ``pages_fetched=0``) si
@@ -163,7 +168,8 @@ def crawl(
         enqueue(entry, 1)
     enqueue("/", 0)
 
-    while queue and result.pages_fetched < max_pages and now() < deadline:
+    while (queue and result.pages_fetched < max_pages and now() < deadline
+           and not (cancel_check is not None and cancel_check())):
         path, depth = queue.popleft()
         if path in seen:
             continue

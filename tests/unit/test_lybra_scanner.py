@@ -43,6 +43,7 @@ class _Phases(ScanPhases):
         self.active_findings = list(active_findings)
         self.calls: list = []
         self.sweeps = 0
+        self.cancel_checks: dict = {}
 
     def discover_ports(self, target, ports=None, budget_seconds=None, cancel_check=None,
                        on_progress=None):
@@ -66,8 +67,9 @@ class _Phases(ScanPhases):
         self.calls.append(("analyze", [(service.port, service.product) for service in services]))
         return [dict(finding) for finding in self.version_findings]
 
-    def run_crawler(self, target, services):
+    def run_crawler(self, target, services, cancel_check=None):
         self.calls.append(("crawl", target))
+        self.cancel_checks["crawl"] = cancel_check
         return [], ["/admin"], {}, {}
 
     def run_active_checks(self, target, services, **kwargs):
@@ -82,8 +84,9 @@ class _Phases(ScanPhases):
         self.calls.append(("sites", address, tuple(extra_candidates)))
         return []
 
-    def run_credential_checks(self, target, services, mode, discovered_paths=None):
+    def run_credential_checks(self, target, services, mode, discovered_paths=None, cancel_check=None):
         self.calls.append(("credentials", mode, discovered_paths))
+        self.cancel_checks["credentials"] = cancel_check
         return []
 
     def phases_called(self):
@@ -329,3 +332,13 @@ def test_a_scan_by_name_resolves_only_to_the_pinned_address(monkeypatch):
     assert resolved == ["203.0.113.9"]
     with pytest.raises(OSError):
         socket.getaddrinfo("scan-target.invalid", 443)
+
+
+def test_run_scan_hands_its_stop_condition_to_the_crawler_and_the_credentials():
+    """El plazo y la cancelación llegan a las dos fases que antes no los miraban."""
+    phases = _Phases()
+    run_scan(ScanRequest(target="203.0.113.5", mode="aggressive"), phases)
+
+    assert callable(phases.cancel_checks["crawl"])
+    assert callable(phases.cancel_checks["credentials"])
+    assert phases.cancel_checks["crawl"] is phases.cancel_checks["credentials"]

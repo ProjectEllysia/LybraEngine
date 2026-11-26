@@ -613,7 +613,8 @@ class ScanPhases:  # pylint: disable=too-many-public-methods
         """
         return []
 
-    def run_crawler(self, target: str, services: list) -> tuple:
+    def run_crawler(self, target: str, services: list,
+                    cancel_check: Optional[Callable[[], bool]] = None) -> tuple:
         """
         Rastrea en sólo lectura los servicios web del objetivo.
 
@@ -623,6 +624,9 @@ class ScanPhases:  # pylint: disable=too-many-public-methods
         Args:
             target: El objetivo (IP o nombre ya fijado a la IP validada).
             services: Los servicios del escaneo.
+            cancel_check: Dice si hay que parar; el rastreo se detiene entre
+                páginas y no empieza los servicios que quedan. Por defecto
+                ``None``.
 
         Returns:
             tuple: ``(hallazgos, rutas_con_auth_basica, directorios,
@@ -640,13 +644,14 @@ class ScanPhases:  # pylint: disable=too-many-public-methods
             directories_by_port: dict = {}
             login_paths_by_port: dict = {}
             for service in services:
-                if not is_http_service(service):
+                if not is_http_service(service) or (cancel_check and cancel_check()):
                     continue
                 result = crawl(
                     target, service.port, fetch,
                     max_pages=settings.crawler_max_pages,
                     max_depth=settings.crawler_max_depth,
                     time_budget_seconds=settings.crawler_time_budget_seconds,
+                    cancel_check=cancel_check,
                 )
                 findings.extend(crawl_findings(service, result))
                 auth_paths.extend(result.basic_auth_paths)
@@ -752,7 +757,8 @@ class ScanPhases:  # pylint: disable=too-many-public-methods
             for service in services:
                 if not is_http_service(service) or (cancel_check and cancel_check()):
                     continue
-                checks = _derived_api_checks(target, service, fetch, limiter, settings.api_max_endpoints)
+                checks = _derived_api_checks(
+                    target, service, fetch, limiter, settings.api_max_endpoints, cancel_check)
                 for check_mode in ("safe", "aggressive"):
                     group = [check for check in checks if check.mode == check_mode]
                     if not group or (check_mode == "aggressive" and mode != "aggressive"):
@@ -789,7 +795,8 @@ class ScanPhases:  # pylint: disable=too-many-public-methods
                                  extra_candidates=extra_candidates)
 
     def run_credential_checks(self, target: str, services: list, mode: str,
-                              discovered_paths=None) -> list:
+                              discovered_paths=None,
+                              cancel_check: Optional[Callable[[], bool]] = None) -> list:
         """
         Prueba credenciales por defecto contra los servicios del objetivo.
 
@@ -805,6 +812,8 @@ class ScanPhases:  # pylint: disable=too-many-public-methods
                 una lista vacía.
             discovered_paths: Rutas con autenticación básica que encontró el
                 rastreo. Por defecto ``None``.
+            cancel_check: Dice si hay que parar; no se lanza ningún intento más.
+                Por defecto ``None``.
 
         Returns:
             list: Los hallazgos de credenciales aceptadas; vacía si el modo no
@@ -823,7 +832,8 @@ class ScanPhases:  # pylint: disable=too-many-public-methods
                 max_attempts_per_account=settings.credential_max_attempts,
                 capture_evidence=settings.capture_evidence,
             )
-            return runtime.run(target, services, discovered_paths=discovered_paths)
+            return runtime.run(target, services, discovered_paths=discovered_paths,
+                               cancel_check=cancel_check)
         except Exception:  # pylint: disable=broad-exception-caught
             logger.exception("Lybra credential checks failed for %s", target)
             return []
@@ -951,7 +961,7 @@ def run_scan(request: ScanRequest, phases: Optional[ScanPhases] = None, *,  # py
         # puerta lleguen al motor de credenciales.
         if may_probe and request.crawl and not should_stop():
             crawl_result, discovered_auth_paths, discovered_directories, discovered_login_paths = (
-                phases.run_crawler(target, services))
+                phases.run_crawler(target, services, cancel_check=should_stop))
             findings.extend(crawl_result)
         progress.advance("checks", 1, 3)
 
@@ -983,7 +993,8 @@ def run_scan(request: ScanRequest, phases: Optional[ScanPhases] = None, *,  # py
         progress.advance("checks", 2, 3)
 
         if may_probe and mode == "aggressive" and not should_stop():
-            findings.extend(phases.run_credential_checks(target, services, mode, discovered_auth_paths))
+            findings.extend(phases.run_credential_checks(
+                target, services, mode, discovered_auth_paths, cancel_check=should_stop))
 
         # ¿Sigue respondiendo el objetivo? Si no contesta ninguno de los puertos
         # que estaban abiertos, lo de después del bloqueo no es un resultado
@@ -1271,7 +1282,8 @@ def scan_integrity_finding(title: str) -> dict:
 
 
 def _derived_api_checks(target: str, service: Service, fetch: Callable, limiter: HostRateLimiter,
-                        max_endpoints: int) -> list:
+                        max_endpoints: int,
+                        cancel_check: Optional[Callable[[], bool]] = None) -> list:
     """
     Deriva los checks de la primera especificación de API parseable de un servicio.
 
@@ -1281,11 +1293,16 @@ def _derived_api_checks(target: str, service: Service, fetch: Callable, limiter:
         fetch: La función que hace las peticiones.
         limiter: El limitador de ritmo del host.
         max_endpoints: El tope de checks derivados.
+        cancel_check: Dice si hay que parar; no se pide ninguna ruta más. Por
+            defecto ``None``.
 
     Returns:
-        list: Los checks; vacía si el servicio no publica especificación.
+        list: Los checks; vacía si el servicio no publica especificación o si
+            se canceló antes de dar con ella.
     """
     for path in SPECIFICATION_PATHS:
+        if cancel_check is not None and cancel_check():
+            return []
         limiter.acquire(target)
         response = fetch(target, service.port, "GET", path)
         if response is None or response.status != 200:
@@ -1303,7 +1320,8 @@ def discover_sites(  # pylint: disable=too-many-arguments,too-many-positional-ar
         address: str, services: list, limit: int, tls_fetch: Callable,
         reverse_lookup: Optional[Callable[[str], Optional[str]]] = None,
         resolve: Optional[Callable[[str], set]] = None,
-        extra_candidates: Sequence[Tuple[str, str]] = ()) -> List[Tuple[str, str]]:
+        extra_candidates: Sequence[Tuple[str, str]] = (),
+        cancel_check: Optional[Callable[[], bool]] = None) -> List[Tuple[str, str]]:
     """
     Busca los sitios con nombre que sirve ``address``, con el origen de cada nombre.
 
@@ -1321,9 +1339,12 @@ def discover_sites(  # pylint: disable=too-many-arguments,too-many-positional-ar
         resolve: ``nombre -> set de IPs``. Por defecto, el resolutor del sistema.
         extra_candidates: Pares ``(nombre, origen)`` que no delata la IP y que
             quien llama ya decidió que se pueden auditar. Por defecto, ninguno.
+        cancel_check: Dice si hay que parar; se consulta antes de cada
+            servicio. Por defecto ``None``.
 
     Returns:
-        list: Pares ``(nombre, origen)``; vacía si no hay ninguno.
+        list: Pares ``(nombre, origen)``; vacía si no hay ninguno o si se
+            canceló a medias (con candidatos a medias no se decide nada).
     """
     if limit <= 0:
         return []
@@ -1331,6 +1352,8 @@ def discover_sites(  # pylint: disable=too-many-arguments,too-many-positional-ar
     resolve = resolve or _addresses_of
     candidates: List[Tuple[str, str]] = []
     for service in services:
+        if cancel_check is not None and cancel_check():
+            return []
         is_ftp = is_ftp_service(service) and not is_tls_service(service) and service.port != 990
         if not (is_ftp or is_tls_service(service) or (is_http_service(service) and service.port == 443)):
             continue
@@ -1360,7 +1383,8 @@ def _addresses_of(name: str) -> set:
         return set()
 
 
-def view_site(host: str, web_services: list) -> dict:
+def view_site(host: str, web_services: list,
+              cancel_check: Optional[Callable[[], bool]] = None) -> dict:
     """
     Resume lo que ``host`` sirve en cada puerto web, para compararlo con otro sitio.
 
@@ -1370,6 +1394,9 @@ def view_site(host: str, web_services: list) -> dict:
     Args:
         host: La IP o el nombre del sitio.
         web_services: Los servicios HTTP y TLS del escaneo.
+        cancel_check: Dice si hay que parar; se consulta antes de cada puerto
+            y deja la vista incompleta, así que quien llama debe volver a
+            consultarla antes de fiarse de ella. Por defecto ``None``.
 
     Returns:
         dict: ``puerto -> (estado HTTP, SHA-256 del cuerpo, identidad del
@@ -1379,6 +1406,8 @@ def view_site(host: str, web_services: list) -> dict:
     tls_probe = TlsProbe()
     views = {}
     for service in web_services:
+        if cancel_check is not None and cancel_check():
+            break
         response = http_probe.fetch(host, service.port, "GET", "/")
         certificate = tls_probe.fetch(host, service.port) if is_tls_service(service) else None
         views[service.port] = (
@@ -1424,10 +1453,10 @@ def audit_named_sites(  # pylint: disable=too-many-arguments,too-many-positional
         list: Un aviso ``virtual_host`` por sitio y los hallazgos de cada uno,
             con su ``vhost``; vacía si la IP no delata ningún nombre.
     """
-    discover = discover or discover_sites
+    discover = discover or partial(discover_sites, cancel_check=cancel_check)
     sites = discover(address, services, max_sites, TlsProbe().fetch, extra_candidates=extra_candidates)
     web_services = [service for service in services if is_http_service(service) or is_tls_service(service)]
-    view_site_fn = view_site_fn or view_site
+    view_site_fn = view_site_fn or partial(view_site, cancel_check=cancel_check)
     default_views = view_site_fn(address, web_services) if sites and web_services else {}
     findings = []
     for name, origin in sites:
@@ -1435,7 +1464,12 @@ def audit_named_sites(  # pylint: disable=too-many-arguments,too-many-positional
             findings.append(site_finding(name, origin))
             continue
         with pinned_resolution(name, address):
-            if is_alias_of_default_site(default_views, view_site_fn(name, web_services)):
+            site_views = view_site_fn(name, web_services)
+            if cancel_check():
+                # Una vista cortada por la cancelación no se puede comparar.
+                findings.append(site_finding(name, origin))
+                continue
+            if is_alias_of_default_site(default_views, site_views):
                 findings.append(site_finding(name, origin, serves_default_site=True))
                 continue
             findings.append(site_finding(name, origin))

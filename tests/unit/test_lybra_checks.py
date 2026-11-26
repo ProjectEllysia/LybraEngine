@@ -1507,3 +1507,81 @@ def test_yaml_feed_supports_comments(tmp_path):
     )
     checks = load_checks(str(feed))
     assert [c.id for c in checks] == ["documented-check"]
+
+
+# --------------------------------------------------------- cancelación a mitad
+
+def _cancel_after(fetch, requests_allowed):
+    """Un ``cancel_check`` que se activa cuando ``fetch`` ya atendió ``requests_allowed`` peticiones."""
+    return lambda: len(fetch.calls) >= requests_allowed
+
+
+def test_a_cancel_flipping_mid_service_stops_before_the_next_request():
+    # Un único servicio con decenas de checks: la cancelación llega tras la
+    # tercera petición y a partir de ahí no sale ninguna más.
+    fetch = _fetcher({})
+    findings = CheckRuntime(load_checks(), fetch).run(
+        "10.0.0.5", [_HTTP], cancel_check=_cancel_after(fetch, 3))
+
+    assert len(fetch.calls) == 3
+    uncancelled = _fetcher({})
+    CheckRuntime(load_checks(), uncancelled).run("10.0.0.5", [_HTTP])
+    assert len(uncancelled.calls) > 3
+    assert isinstance(findings, list)
+
+
+def test_a_cancelled_request_is_not_a_failure_for_the_limiter_nor_a_finding():
+    # Todo lo que contestó el objetivo fue un 404: la cancelación no puede
+    # convertirse en un fallo (frenaría al host) ni en un hallazgo "faltan
+    # cabeceras" sacado de una respuesta que nunca existió.
+    limiter = _LimitadorQueAnota()
+    fetch = _fetcher({})
+    findings = CheckRuntime(load_checks(), fetch, rate_limiter=limiter).run(
+        "10.0.0.5", [_HTTP], cancel_check=_cancel_after(fetch, 2))
+
+    assert len(fetch.calls) == 2
+    assert set(limiter.avisos) == {("respuesta", "10.0.0.5")}
+    assert len(limiter.avisos) == 2
+    assert findings == []
+
+
+def test_a_cancelled_scan_keeps_the_findings_gathered_before_the_cancel():
+    fetch = _fetcher({"/.git/config": Response(200, "[core]\n\trepositoryformatversion = 0\n", {})})
+    # El check pide su ruta y después la referencia (ruta inventada) para
+    # descartar un comodín; se cancela al terminar esa segunda petición, así
+    # que el hallazgo ya está completo y debe conservarse.
+    runtime_cancel = lambda: any(call[3] == "/.git/config" for call in fetch.calls[:-1])
+    findings = CheckRuntime(load_checks(), fetch).run("10.0.0.5", [_HTTP], cancel_check=runtime_cancel)
+
+    assert [f["check_id"] for f in findings] == ["lybra:git-config-exposure@1"]
+
+
+def test_a_cancelled_baseline_is_not_cached_as_a_missing_one():
+    runtime = CheckRuntime(load_checks(), _fetcher({}))
+    runtime._cancel_check = lambda: True  # pylint: disable=protected-access
+
+    with pytest.raises(BaseException) as raised:
+        runtime.get_baseline("10.0.0.5", _HTTP)
+
+    assert raised.type.__name__ == "_ScanCancelled"
+    assert not runtime._baselines  # pylint: disable=protected-access
+
+
+def test_a_cancel_stops_a_network_check_before_opening_the_session():
+    opened = []
+    limiter = _LimitadorQueAnota()
+    CheckRuntime(
+        load_checks(), lambda *a: None, rate_limiter=limiter,
+        network_open=lambda host, port: opened.append(port),
+    ).run("10.0.0.5", [_FTP], cancel_check=lambda: True)
+
+    assert opened == [] and limiter.avisos == []
+
+
+def test_a_cancel_cuts_a_script_plugin_at_its_next_exchange():
+    probe = _FakeSmbProbe((_DIALECT_302, _SIGNING_ENABLED_ONLY))
+    plugins = {"smb-signing-not-required": SmbSigningNotRequiredPlugin(probe=probe)}
+    findings = CheckRuntime(load_checks(), _fetcher({}), script_plugins=plugins).run(
+        "10.0.0.5", [_SMB], cancel_check=lambda: True)
+
+    assert findings == [] and probe.calls == []

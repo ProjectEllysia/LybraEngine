@@ -46,7 +46,7 @@ class _FakePhases(KnowledgeBasePhases):
     def fingerprint_services(self, target, services, cancel_check=None, on_progress=None):
         return [Service(port=80, protocol="tcp", name="http", product="nginx", version="1.18.0")], []
 
-    def run_crawler(self, target, services):
+    def run_crawler(self, target, services, cancel_check=None):
         return [], [], {}, {}
 
     def run_active_checks(self, target, services, **kwargs):

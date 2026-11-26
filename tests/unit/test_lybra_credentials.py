@@ -240,3 +240,19 @@ def test_a_fixed_path_entry_ignores_discovered_paths():
 
     CredentialRuntime([entry], fetch).run("10.0.0.1", [_SVC], discovered_paths=["/webstat"])
     assert probed == ["/manager"]
+
+
+def test_a_cancel_stops_the_credential_attempts():
+    entry = _entry([CredentialPair("admin", "uno"), CredentialPair("admin", "dos"),
+                    CredentialPair("admin", "tres")])
+    attempts = []
+
+    def fetch(host, port, method, path, body, headers):
+        attempts.append(path)
+        return Response(401, "", {})
+
+    findings = CredentialRuntime([entry], fetch, max_attempts_per_account=3).run(
+        "10.0.0.1", [_SVC], cancel_check=lambda: len(attempts) >= 1)
+
+    assert len(attempts) == 1
+    assert findings == []

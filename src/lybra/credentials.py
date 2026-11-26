@@ -275,9 +275,11 @@ class CredentialRuntime:
         self._rl = rate_limiter
         self._max_attempts = max(1, int(max_attempts_per_account))
         self._capture_evidence = capture_evidence
+        self._cancel_check: Optional[Callable[[], bool]] = None
 
     def run(self, host: str, services: Iterable,
-            discovered_paths: Optional[Iterable[str]] = None) -> List[dict]:
+            discovered_paths: Optional[Iterable[str]] = None,
+            cancel_check: Optional[Callable[[], bool]] = None) -> List[dict]:
         """Probar cada entrada aplicable contra cada servicio del host.
 
         Args:
@@ -288,10 +290,15 @@ class CredentialRuntime:
                 ``applies_to_discovered_paths`` se prueban contra cada una;
                 el resto ignora este argumento. ``None`` o vacío: sólo corren
                 las entradas de ruta fija.
+            cancel_check: Dice si el escaneo se canceló o agotó su plazo; se
+                consulta antes de cada intento y, al ser ``True``, se deja de
+                probar y se devuelve lo hallado hasta ahí. Por defecto ``None``
+                (no se cancela).
 
         Returns:
             Un hallazgo por cada entrada que encontró una cuenta funcionando.
         """
+        self._cancel_check = cancel_check
         discovered = list(discovered_paths or [])
         findings: List[dict] = []
         for service in services:
@@ -301,10 +308,16 @@ class CredentialRuntime:
                     continue
                 paths = discovered if entry.applies_to_discovered_paths else [entry.path]
                 for path in paths:
+                    if self._is_cancelled():
+                        return findings
                     finding = self._try_entry(host, service, entry, path)
                     if finding is not None:
                         findings.append(finding)
         return findings
+
+    def _is_cancelled(self) -> bool:
+        """Dice si el escaneo se canceló o agotó su plazo (ver ``cancel_check`` de :meth:`run`)."""
+        return self._cancel_check is not None and self._cancel_check()
 
     def _try_entry(self, host: str, service, entry: CredentialEntry,
                    path: str) -> Optional[dict]:
@@ -320,6 +333,8 @@ class CredentialRuntime:
             used = attempts_by_username.get(account.username, 0)
             if used >= self._max_attempts:
                 continue
+            if self._is_cancelled():
+                return None
             attempts_by_username[account.username] = used + 1
 
             if self._rl is not None:
