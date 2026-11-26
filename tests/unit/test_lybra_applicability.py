@@ -111,3 +111,13 @@ def test_an_inventory_package_keeps_every_cve():
 
     assert cves == ["CVE-2024-6387", "CVE-2025-26465", "CVE-2026-59999"]
     assert not any(f.get("check_id") == CONDITIONAL_VERSION_CHECK_ID for f in findings)
+
+
+def test_an_equivalent_vendor_uses_the_same_applicability_entry(monkeypatch):
+    from lybra import applicability
+
+    monkeypatch.setattr(applicability, "load_cve_applicability",
+                        lambda: {"nginx:nginx": {"cves": {"CVE-2099-1": {"component": "client"}}}})
+
+    assert applicability.classify_cve_applicability("f5", "nginx", "CVE-2099-1") == ("client", None)
+    assert applicability.classify_cve_applicability("other", "nginx", "CVE-2099-1") is None

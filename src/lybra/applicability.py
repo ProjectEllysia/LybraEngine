@@ -22,6 +22,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Optional, Tuple
 
+from .kb import equivalent_vendors
+
 _BUNDLED_FEED = Path(__file__).parent / "feeds" / "cve_applicability.json"
 
 # Programas del paquete OpenSSH que no son el servidor. Si la descripción los
@@ -58,7 +60,8 @@ def classify_cve_applicability(vendor: str, product: str, cve_id: str,
     """Dice si una CVE no aplica a un servicio de red, o sólo con una condición.
 
     Args:
-        vendor: El vendor del CPE, p. ej. ``"openbsd"``.
+        vendor: El vendor del CPE, p. ej. ``"openbsd"``; también se prueban
+            sus vendors equivalentes.
         product: El producto del CPE, p. ej. ``"openssh"``.
         cve_id: La CVE.
         description: La descripción de la NVD, para la heurística de respaldo.
@@ -70,7 +73,9 @@ def classify_cve_applicability(vendor: str, product: str, cve_id: str,
             configuración; ``None`` si aplica sin más o si no se sabe (que es
             el comportamiento de siempre).
     """
-    entry = load_cve_applicability().get(f"{vendor}:{product}")
+    feed = load_cve_applicability()
+    entry = next((feed[key] for key in (f"{each}:{product}" for each in equivalent_vendors(vendor, product))
+                  if key in feed), None)
     if entry is None:
         return None
     curated = entry.get("cves", {}).get(cve_id)

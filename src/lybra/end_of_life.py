@@ -36,6 +36,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from .kb import equivalent_vendors
+
 _BUNDLED_CATALOG = Path(__file__).parent / "feeds" / "eol_catalog.json"
 
 
@@ -120,7 +122,8 @@ def check_end_of_life(vendor: str, product: str, version: str,
     """Dice si la rama de un producto y versión está fuera de soporte.
 
     Args:
-        vendor: El vendor del CPE (``"nginx"``, ``"postgresql"``).
+        vendor: El vendor del CPE (``"nginx"``, ``"postgresql"``); también se
+            prueban sus vendors equivalentes (``"f5"`` para nginx).
         product: El producto del CPE (``"nginx"``, ``"postgresql"``).
         version: La versión detectada.
         as_of: El instante contra el que se juzga el fin de soporte.
@@ -134,7 +137,9 @@ def check_end_of_life(vendor: str, product: str, version: str,
         catálogo, la versión no encaja en ninguna rama conocida, o la rama no
         tiene fecha de fin de soporte (desarrollo continuo).
     """
-    branches = (catalog if catalog is not None else load_eol_catalog()).get(f"{vendor}:{product}")
+    entries = catalog if catalog is not None else load_eol_catalog()
+    branches = next((entries[key] for key in (f"{each}:{product}" for each in equivalent_vendors(vendor, product))
+                     if entries.get(key)), None)
     if not branches:
         return None
     by_cycle = {branch["cycle"]: branch for branch in branches}

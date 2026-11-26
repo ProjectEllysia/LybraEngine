@@ -391,3 +391,39 @@ def test_several_threads_can_read_while_another_writes(kb):
 
     assert errors == []
     assert kb.counts()["cves"] == 51
+
+
+# ============================================================ vendors equivalentes
+
+def test_a_cve_filed_under_an_equivalent_vendor_is_found(kb):
+    """La NVD archiva las CVE de nginx bajo ``f5``; el CPE de Nmap dice ``nginx``."""
+    kb.upsert_cve(_cve_row("CVE-2021-23017"), [_match("f5", "nginx", version_end_excluding="1.20.1")])
+
+    assert [cve.cve_id for cve in kb.cves_for_cpe("nginx", "nginx", "1.18.0")] == ["CVE-2021-23017"]
+    assert [cve.cve_id for cve in kb.cves_for_cpe("f5", "nginx", "1.18.0")] == ["CVE-2021-23017"]
+
+
+def test_a_vendor_outside_the_group_only_matches_itself(kb):
+    """Un fork o un empaquetado con otro vendor no hereda las reglas del grupo."""
+    kb.upsert_cve(_cve_row("CVE-2021-23017"), [_match("f5", "nginx", version_end_excluding="1.20.1")])
+    kb.upsert_cve(_cve_row("CVE-2099-0001"), [_match("someone_else", "nginx", version_end_excluding="9")])
+
+    assert [cve.cve_id for cve in kb.cves_for_cpe("someone_else", "nginx", "1.18.0")] == ["CVE-2099-0001"]
+
+
+def test_a_cve_with_rules_under_both_vendors_is_returned_once(kb):
+    kb.upsert_cve(_cve_row("CVE-2021-23017"), [
+        _match("f5", "nginx", version_end_excluding="1.20.1"),
+        _match("nginx", "nginx", exact_version="1.18.0"),
+    ])
+
+    assert [cve.cve_id for cve in kb.cves_for_cpe("nginx", "nginx", "1.18.0")] == ["CVE-2021-23017"]
+
+
+def test_recent_cves_also_look_under_equivalent_vendors(kb):
+    kb.upsert_cve(_cve_row("CVE-2026-0001", published=_NOW - timedelta(days=3)), [
+        _match("f5", "nginx"), _match("nginx", "nginx")])
+
+    rows = kb.recent_cves_for_products([("nginx", "nginx")], since=_NOW - timedelta(days=30))
+
+    assert [(vendor, cve.cve_id) for vendor, _, cve in rows] == [("nginx", "CVE-2026-0001")]

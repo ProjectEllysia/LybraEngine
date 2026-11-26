@@ -141,3 +141,11 @@ def test_a_mysql_56_resolved_through_its_alias_is_past_end_of_life():
 
     vendor, product = load_product_aliases()["mysql"]
     assert check_end_of_life(vendor, product, "5.6.51").is_past
+
+
+def test_an_equivalent_vendor_finds_the_bundled_branches():
+    """NVD registra nginx también como ``f5:nginx``; el catálogo sólo tiene ``nginx:nginx``."""
+    status = check_end_of_life("f5", "nginx", "1.27.3", as_of=date(2026, 1, 1))
+
+    assert status is not None and status.cycle == "1.27"
+    assert check_end_of_life("someone_else", "nginx", "1.27.3", as_of=date(2026, 1, 1)) is None

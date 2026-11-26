@@ -1,0 +1,21 @@
+{
+  "_comment": "Vendors que la NVD usa para EL MISMO producto con la MISMA numeración de versiones (renombres y adquisiciones): las reglas de cada CVE cuelgan de uno solo, así que un CPE con el otro vendor no encuentra nada (nginx detectado como nginx:nginx, CVE bajo f5:nginx). Clave: producto CPE. Valor: los vendors equivalentes. Solo entran pares verificados contra la NVD; no se añaden forks (openmage) ni empaquetados de distribución (redhat, suse), cuyas versiones no son las del proyecto.",
+  "feedVersion": "lybra-vendor-equivalences-1",
+  "products": {
+    "nginx": ["nginx", "f5"],
+    "mysql": ["mysql", "oracle"],
+    "curl": ["curl", "haxx", "daniel_stenberg"],
+    "libcurl": ["libcurl", "curl", "haxx"],
+    "squid": ["squid", "squid-cache"],
+    "subversion": ["subversion", "apache"],
+    "jetty": ["jetty", "eclipse", "mortbay"],
+    "sudo": ["sudo", "todd_miller", "sudo_project"],
+    "cups": ["cups", "apple", "easy_software_products"],
+    "phpbb": ["phpbb", "phpbb_group"],
+    "asterisk": ["asterisk", "digium", "sangoma"],
+    "magento": ["magento", "adobe"],
+    "7-zip": ["7-zip", "igor_pavlov"],
+    "wpa_supplicant": ["wpa_supplicant", "w1.fi"],
+    "hostapd": ["hostapd", "w1.fi"]
+  }
+}

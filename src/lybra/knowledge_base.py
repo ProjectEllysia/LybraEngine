@@ -41,7 +41,7 @@ from pathlib import Path
 from typing import Dict, Iterable, Iterator, List, Optional, Tuple, Union
 
 from ._shared import utcnow_naive
-from .kb import normalize_product_name, split_distro_version, version_in_range
+from .kb import equivalent_vendors, normalize_product_name, split_distro_version, version_in_range
 
 logger = logging.getLogger(__name__)
 
@@ -434,26 +434,29 @@ class KnowledgeBase:  # pylint: disable=too-many-public-methods
         Devuelve las CVE que afectan a ``vendor:product`` en ``version``.
 
         Filtra en SQL por producto y aplica la lógica de rangos en Python (ver
-        ``kb.version_in_range``). Una CVE puede tener varias reglas para el
+        ``kb.version_in_range``). Busca también bajo los vendors equivalentes
+        del producto (``kb.equivalent_vendors``). Una CVE puede tener varias reglas para el
         mismo producto, unas condicionadas a una plataforma y otras no; si casan
         varias, gana la **menos** restrictiva: una regla incondicional demuestra
         que la CVE aplica aquí, diga lo que diga otra más estrecha.
 
         Args:
-            vendor: El fabricante CPE.
+            vendor: El fabricante CPE; se amplía a sus vendors equivalentes.
             product: El producto CPE.
             version: La versión instalada.
 
         Returns:
-            List[CveRecord]: Las CVE, sin repetir, en el orden en que aparece
-                su primera regla; cada una con ``required_os`` puesto.
+            List[CveRecord]: Las CVE, sin repetir aunque tengan reglas bajo
+                varios vendors, en el orden en que aparece su primera regla;
+                cada una con ``required_os`` puesto.
         """
+        vendors = equivalent_vendors(vendor, product)
         rows = self._rows(
             "SELECT m.*, c.cve_id AS cve_name, c.published, c.last_modified, c.cvss_score, "
             "c.cvss_vector, c.severity, c.description, c.cwe_ids, c.has_exploit_reference, c.source "
             "FROM cpe_match m JOIN cve c ON c.id = m.cve_rowid "
-            "WHERE m.vendor = ? AND m.product = ? ORDER BY m.id",
-            (vendor, product))
+            f"WHERE m.vendor IN ({','.join('?' * len(vendors))}) AND m.product = ? ORDER BY m.id",
+            (*vendors, product))
         order: List[int] = []
         entries: Dict[int, CveRecord] = {}
         for row in rows:
@@ -721,7 +724,8 @@ class KnowledgeBase:  # pylint: disable=too-many-public-methods
         regla sin límites de versión sí cuenta.
 
         Args:
-            products: Pares ``(vendor, product)``.
+            products: Pares ``(vendor, product)``; cada vendor se amplía a sus
+                vendors equivalentes.
             since: Sólo CVE publicadas desde este instante.
             min_cvss: Suelo de CVSS; las CVE sin puntuar se conservan, porque
                 sin puntuar significa «aún no analizada», no «inofensiva». Por
@@ -735,14 +739,16 @@ class KnowledgeBase:  # pylint: disable=too-many-public-methods
         """
         results: List[Tuple[str, str, CveRecord]] = []
         for vendor, product in products:
-            parameters: list = [vendor, product, _to_text(since)]
+            vendors = equivalent_vendors(vendor, product)
+            parameters: list = [*vendors, product, _to_text(since)]
             floor = ""
             if min_cvss is not None:
                 floor = "AND (c.cvss_score IS NULL OR c.cvss_score >= ?)"
                 parameters.append(min_cvss)
             rows = self._rows(
                 "SELECT DISTINCT c.* FROM cve c JOIN cpe_match m ON m.cve_rowid = c.id "
-                "WHERE m.vendor = ? AND m.product = ? AND c.published IS NOT NULL AND c.published >= ? "
+                f"WHERE m.vendor IN ({','.join('?' * len(vendors))}) AND m.product = ? "
+                "AND c.published IS NOT NULL AND c.published >= ? "
                 f"{floor} ORDER BY c.published DESC LIMIT ?", parameters + [limit_per_product])
             results.extend((vendor, product, _cve_from_row(row)) for row in rows)
         return results

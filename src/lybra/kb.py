@@ -44,6 +44,7 @@ import urllib.parse
 from xml.etree import ElementTree
 from contextlib import contextmanager
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import IO, Dict, Iterator, List, Optional, Tuple, Union
 
@@ -569,6 +570,49 @@ def load_product_aliases(path: Optional[str] = None) -> Dict[str, Tuple[str, str
     feed_path = Path(path) if path else _BUNDLED_PRODUCT_ALIASES
     data = json.loads(feed_path.read_text(encoding="utf-8"))
     return {entry["match"]: (entry["vendor"], entry["product"]) for entry in data.get("aliases", [])}
+
+
+# Los vendors que la NVD usa para UN MISMO producto (renombres, adquisiciones):
+# ``f5:nginx`` y ``nginx:nginx`` son el mismo servidor con la misma numeración,
+# pero las reglas de cada CVE cuelgan de uno solo. Sin esta equivalencia, un
+# CPE con el vendor "equivocado" no encuentra ninguna regla. Es un feed curado
+# como los demás: solo entran pares cuya numeración de versiones coincide.
+_BUNDLED_VENDOR_EQUIVALENCES = Path(__file__).parent / "feeds" / "vendor_equivalences.json"
+
+
+@lru_cache(maxsize=1)
+def load_vendor_equivalences(path: Optional[str] = None) -> Dict[str, Tuple[str, ...]]:
+    """Carga el feed de vendors equivalentes por producto.
+
+    Args:
+        path: Ruta a otro feed JSON. Por defecto, ``None``: el que acompaña
+            al módulo.
+
+    Returns:
+        Dict[str, Tuple[str, ...]]: Por producto CPE, los vendors bajo los que
+            la NVD lo registra con la misma numeración de versiones.
+    """
+    feed_path = Path(path) if path else _BUNDLED_VENDOR_EQUIVALENCES
+    data = json.loads(feed_path.read_text(encoding="utf-8"))
+    return {product: tuple(vendors) for product, vendors in data.get("products", {}).items()}
+
+
+def equivalent_vendors(vendor: str, product: str) -> Tuple[str, ...]:
+    """Devuelve los vendors bajo los que buscar las reglas de un producto.
+
+    Args:
+        vendor: El vendor del CPE detectado.
+        product: El producto del CPE detectado.
+
+    Returns:
+        Tuple[str, ...]: ``vendor`` primero y, detrás, los demás vendors
+            equivalentes del producto, solo si ``vendor`` pertenece a su grupo.
+            Si no pertenece (o el producto no tiene grupo), ``(vendor,)``.
+    """
+    group = load_vendor_equivalences().get(product, ())
+    if vendor not in group:
+        return (vendor,)
+    return (vendor,) + tuple(other for other in group if other != vendor)
 
 
 # =========================================================================
