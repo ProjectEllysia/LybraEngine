@@ -162,3 +162,39 @@ def test_the_knowledge_base_helpers_unwrap_their_lists(server):
     assert client.kb_unresolved(origin="inventory") == [{"name": "x"}]
     assert server.requests[2]["params"] == {"products": [{"vendor": "nginx", "product": "nginx"}], "limit": 20,
                                             "since": "2026-01-01T00:00:00Z", "minCvss": 7}
+
+
+def test_the_passive_operations_send_their_params_and_wait_for_the_engine_deadline(server):
+    server.script = lambda request: [{"v": 1, "id": request["id"], "ok": True, "result": {
+        "osint.domain": {"domain": "example.com"}, "osint.hostnames": {"names": ["a.example.com"]},
+        "cloud.probe": {"findings": []}}[request["op"]]}]
+    client = LybraClient(server.path, timeout=1)
+    waits = []
+    original = client.call
+    client.call = lambda op, params=None, **options: (waits.append(options.get("timeout")),
+                                                       original(op, params, **options))[1]
+
+    assert client.osint_domain("example.com", sources=["crtsh"], dkim_selectors=["s1"],
+                               timeout_seconds=30) == {"domain": "example.com"}
+    assert client.osint_hostnames("93.184.216.34") == ["a.example.com"]
+    assert client.cloud_probe(["s3:b"], ["app.example.com"]) == {"findings": []}
+
+    assert [request["params"] for request in server.requests] == [
+        {"domain": "example.com", "sources": ["crtsh"], "dkimSelectors": ["s1"], "timeoutSeconds": 30},
+        {"address": "93.184.216.34"},
+        {"resources": ["s3:b"], "subdomains": ["app.example.com"]}]
+    assert waits == [45, 135, 135]
+
+
+def test_enrichment_is_opt_in_and_sends_the_address_it_is_about(server):
+    server.script = _ok({"scanId": "abc", "findings": []})
+    client = LybraClient(server.path)
+
+    client.scan_start("198.51.100.10", enrich=True)
+    client.analyze([{"product": "nginx"}])
+    client.analyze([{"port": 80}], enrich=True, target="198.51.100.10")
+
+    assert [request["params"] for request in server.requests] == [
+        {"target": "198.51.100.10", "enrich": True},
+        {"services": [{"product": "nginx"}]},
+        {"services": [{"port": 80}], "enrich": True, "target": "198.51.100.10"}]

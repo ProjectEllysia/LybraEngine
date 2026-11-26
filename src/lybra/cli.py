@@ -11,6 +11,9 @@ Ejemplos::
     lybra kb status
     lybra kb sync --source kev
     lybra kb cve CVE-2024-6387
+    lybra osint domain example.com --dkim-selector selector1
+    lybra osint hostnames 203.0.113.10
+    lybra cloud probe --resource s3:mi-bucket --subdomain app.example.com
 """
 
 from __future__ import annotations
@@ -52,7 +55,7 @@ def _scan(client: LybraClient, arguments) -> int:
         arguments.target, profile=arguments.profile, aggressive=arguments.aggressive,
         active_checks=not arguments.no_active_checks,
         ports=[int(port) for port in arguments.ports.split(",")] if arguments.ports else None,
-        timeout_seconds=arguments.timeout or None)
+        timeout_seconds=arguments.timeout or None, enrich=arguments.enrich or None)
     if arguments.no_wait:
         print(scan_id)
         return 0
@@ -92,11 +95,30 @@ def _analyze(client: LybraClient, arguments) -> int:
         return 2
     service = {"version": arguments.version, "origin": "inventory"}
     service["cpe" if arguments.cpe else "product"] = arguments.cpe or arguments.product
-    result = client.analyze([service])
+    if arguments.enrich and not arguments.target:
+        print("--enrich necesita --target", file=sys.stderr)
+        return 2
+    result = client.analyze([service], enrich=arguments.enrich or None, target=arguments.target)
     if arguments.json:
         _print_json(result)
     else:
         _print_findings(result["findings"])
+    return 0
+
+
+def _passive(client: LybraClient, arguments) -> int:
+    """``lybra osint …`` y ``lybra cloud probe``: inteligencia pasiva y exposición cloud, en JSON."""
+    timeout = arguments.timeout or None
+    if arguments.command == "cloud":
+        if not (arguments.resource or arguments.subdomain):
+            print("Hace falta --resource o --subdomain", file=sys.stderr)
+            return 2
+        _print_json(client.cloud_probe(arguments.resource, arguments.subdomain, timeout_seconds=timeout))
+    elif arguments.osint_command == "domain":
+        _print_json(client.osint_domain(arguments.domain, sources=arguments.source or None,
+                                        dkim_selectors=arguments.dkim_selector or None, timeout_seconds=timeout))
+    else:
+        _print_json(client.osint_hostnames(arguments.address, timeout_seconds=timeout))
     return 0
 
 
@@ -130,7 +152,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     Returns:
         argparse.ArgumentParser: Con las órdenes ``info``, ``scan``, ``status``,
-            ``result``, ``cancel``, ``analyze`` y ``kb``.
+            ``result``, ``cancel``, ``analyze``, ``kb``, ``osint`` y ``cloud``.
     """
     parser = argparse.ArgumentParser(prog="lybra", description="Cliente del motor de escaneo Lybra.")
     parser.add_argument("--socket", help="ruta del socket de lybrad (por defecto LYBRA_SOCKET o "
@@ -148,6 +170,8 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--aggressive", action="store_true",
                       help="permitir checks que escriben en el objetivo y credenciales por defecto")
     scan.add_argument("--no-active-checks", action="store_true", help="no ejecutar checks activos")
+    scan.add_argument("--enrich", action="store_true",
+                      help="preguntar a Shodan y Censys por la IP del objetivo (se lo revela a un tercero)")
     scan.add_argument("--no-wait", action="store_true", help="encolar y devolver el identificador")
 
     for name, text in (("status", "estado de un escaneo"), ("result", "resultado de un escaneo"),
@@ -159,6 +183,25 @@ def build_parser() -> argparse.ArgumentParser:
     analyze.add_argument("--cpe")
     analyze.add_argument("--product")
     analyze.add_argument("--version", required=True)
+    analyze.add_argument("--enrich", action="store_true", help="preguntar a Shodan y Censys por --target")
+    analyze.add_argument("--target", help="la IP a la que pertenece el servicio (con --enrich)")
+
+    osint = commands.add_parser("osint", help="inteligencia pasiva: fuentes de terceros y DNS público")
+    osint_commands = osint.add_subparsers(dest="osint_command", required=True)
+    domain = osint_commands.add_parser("domain", help="subdominios, servicios vistos y higiene DNS de un dominio")
+    domain.add_argument("domain")
+    domain.add_argument("--source", action="append", choices=("crtsh", "shodan", "censys", "securitytrails"),
+                        help="limita la consulta a esta fuente (repetible)")
+    domain.add_argument("--dkim-selector", action="append", help="selector DKIM que comprobar (repetible)")
+    hostnames = osint_commands.add_parser("hostnames", help="nombres que Shodan y Censys asocian a una IP")
+    hostnames.add_argument("address")
+    cloud = commands.add_parser("cloud", help="exposición cloud")
+    cloud_commands = cloud.add_subparsers(dest="cloud_command", required=True)
+    probe = cloud_commands.add_parser("probe", help="recursos cloud abiertos y subdominios con takeover")
+    probe.add_argument("--resource", action="append", help="proveedor:identificador, p. ej. s3:bucket (repetible)")
+    probe.add_argument("--subdomain", action="append", help="subdominio que comprobar (repetible)")
+    for command in (domain, hostnames, probe):
+        command.add_argument("--timeout", type=float, help="plazo del motor para la consulta, en segundos")
 
     kb = commands.add_parser("kb", help="base de conocimiento")
     kb_commands = kb.add_subparsers(dest="kb_command", required=True)
@@ -199,6 +242,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             _print_json(client.scan_cancel(arguments.scan_id))
         elif arguments.command == "analyze":
             return _analyze(client, arguments)
+        elif arguments.command in ("osint", "cloud"):
+            return _passive(client, arguments)
         else:
             return _kb(client, arguments)
     except LybraError as error:

@@ -19,6 +19,7 @@ import threading
 import pytest
 
 from lybra import cli
+from lybra.checks import Response
 from lybra_client import LybraClient, LybraError
 from lybra.daemon import build_service_settings, serve
 from lybra.knowledge_base import KnowledgeBase
@@ -27,6 +28,7 @@ from lybra.scanner import ScanSettings
 from lybra.service import EngineService, ServiceSettings
 
 from test_service import _FakePhases  # pylint: disable=import-error
+from test_service_passive import _FakeNetwork  # pylint: disable=import-error
 
 pytestmark = pytest.mark.unit
 
@@ -40,7 +42,10 @@ def daemon():
                   [{"vendor": "nginx", "product": "nginx", "version_start_including": "0.6.18",
                     "version_end_excluding": "1.20.1"}])
     service = EngineService(kb, ServiceSettings(scan=ScanSettings(blocking_recheck_ports=0)),
-                            phases_factory=_FakePhases)
+                            phases_factory=_FakePhases, resolve=lambda name: ["93.184.216.7"],
+                            network_factory=_FakeNetwork(
+                                http={("abierto.s3.amazonaws.com", "/"): Response(200, "<ListBucketResult/>", {})}
+                            ).build)
     path = os.path.join(directory, "lybra.sock")
     server = serve(service, path, group=None)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -119,6 +124,23 @@ def test_the_command_line_scans_and_prints_json(daemon, capsys):
     assert any(finding.get("cveIds") == ["CVE-2021-23017"] for finding in analysis["findings"])
 
 
+def test_the_passive_and_cloud_operations_round_trip_through_the_socket(daemon, capsys):
+    client = LybraClient(daemon)
+
+    result = client.cloud_probe(["s3:abierto"], timeout_seconds=5)
+    assert [finding["checkId"] for finding in result["findings"]] == ["lybra:cloud-s3-public-bucket@1"]
+    assert client.osint_hostnames("93.184.216.34") == []
+    with pytest.raises(LybraError) as error:
+        client.cloud_probe()
+    assert error.value.code == "invalid_params"
+
+    assert cli.main(["--socket", daemon, "cloud", "probe", "--resource", "s3:abierto"]) == 0
+    assert json.loads(capsys.readouterr().out)["resources"] == ["s3:abierto"]
+    assert cli.main(["--socket", daemon, "osint", "hostnames", "93.184.216.34"]) == 0
+    assert json.loads(capsys.readouterr().out) == []
+    assert cli.main(["--socket", daemon, "cloud", "probe"]) == 2
+
+
 def test_the_command_line_reports_engine_errors_and_a_missing_daemon(daemon, capsys):
     assert cli.main(["--socket", daemon, "scan", "10.0.0.5"]) == 1
     assert "target_not_allowed" in capsys.readouterr().err
@@ -138,3 +160,17 @@ def test_the_configuration_file_reaches_the_service_settings():
     assert build_service_settings({}, allow_private=False).allow_private_targets is False
     with pytest.raises(SystemExit):
         build_service_settings({"scan": {"turbo": True}})
+
+
+def test_the_osint_keys_come_from_the_environment_before_the_file(monkeypatch):
+    monkeypatch.setenv("LYBRA_SHODAN_API_KEY", "del-entorno")
+    monkeypatch.delenv("LYBRA_CENSYS_API_KEY", raising=False)
+    monkeypatch.delenv("LYBRA_SECURITYTRAILS_API_KEY", raising=False)
+
+    osint = build_service_settings({"osint": {"shodan_api_key": "del-fichero", "censys_api_key": "id:secreto",
+                                              "ttl_hours": 6, "enabled_sources": ["crtsh"]}}).osint
+
+    assert osint.api_keys == {"shodan": "del-entorno", "censys": "id:secreto"}
+    assert osint.ttl_hours == 6 and osint.enabled_sources == ("crtsh",)
+    with pytest.raises(SystemExit):
+        build_service_settings({"osint": {"turbo": True}})
