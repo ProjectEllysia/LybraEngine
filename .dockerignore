@@ -5,3 +5,7 @@ tests
 client/tests
 scripts
 *.sqlite*
+build/
+dist/
+docs/
+**/*.egg-info

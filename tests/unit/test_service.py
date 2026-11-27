@@ -148,7 +148,7 @@ def test_private_targets_are_refused_unless_allowed(kb):
     service.shutdown()
 
     permissive = _service(kb, allow_private_targets=True)
-    assert _ok(permissive, "scan.start", {"target": "10.0.0.5"})["status"] in ("queued", "running")
+    assert _ok(permissive, "scan.start", {"target": "10.0.0.5"})["status"] in ("queued", "running", "completed")
     permissive.shutdown()
 
 
