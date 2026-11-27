@@ -134,9 +134,9 @@ def test_the_passive_and_cloud_operations_round_trip_through_the_socket(daemon, 
         client.cloud_probe()
     assert error.value.code == "invalid_params"
 
-    assert cli.main(["--socket", daemon, "cloud", "probe", "--resource", "s3:abierto"]) == 0
+    assert cli.main(["--socket", daemon, "--json", "cloud", "probe", "--resource", "s3:abierto"]) == 0
     assert json.loads(capsys.readouterr().out)["resources"] == ["s3:abierto"]
-    assert cli.main(["--socket", daemon, "osint", "hostnames", "93.184.216.34"]) == 0
+    assert cli.main(["--socket", daemon, "--json", "osint", "hostnames", "93.184.216.34"]) == 0
     assert json.loads(capsys.readouterr().out) == []
     assert cli.main(["--socket", daemon, "cloud", "probe"]) == 2
 
