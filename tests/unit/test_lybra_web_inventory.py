@@ -12,8 +12,8 @@ from types import SimpleNamespace
 import pytest
 
 from lybra import LybraEngine, compute_dedup_key
-from lybra.checks import Response
-from lybra.engine import Service
+from lybra.checks.framework import Response
+from lybra.core.engine import Service
 from lybra.fingerprinting.http import (
     fingerprint_http,
     load_tech_signatures,

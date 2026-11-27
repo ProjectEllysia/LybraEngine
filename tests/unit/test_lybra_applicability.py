@@ -12,12 +12,12 @@ import types
 import pytest
 
 from lybra import score_finding
-from lybra.applicability import (
+from lybra.analysis.applicability import (
     classify_cve_applicability,
     load_cve_applicability,
 )
-from lybra.correlation import CONDITIONAL_VERSION_CHECK_ID
-from lybra.engine import LybraEngine, Service
+from lybra.analysis.correlation import CONDITIONAL_VERSION_CHECK_ID
+from lybra.core.engine import LybraEngine, Service
 
 pytestmark = pytest.mark.unit
 
@@ -114,7 +114,7 @@ def test_an_inventory_package_keeps_every_cve():
 
 
 def test_an_equivalent_vendor_uses_the_same_applicability_entry(monkeypatch):
-    from lybra import applicability
+    from lybra.analysis import applicability
 
     monkeypatch.setattr(applicability, "load_cve_applicability",
                         lambda: {"nginx:nginx": {"cves": {"CVE-2099-1": {"component": "client"}}}})

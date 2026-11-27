@@ -1,4 +1,4 @@
-"""Riesgo de movimiento lateral (``lybra/lateral.py``): cada regla con su escenario mínimo.
+"""Riesgo de movimiento lateral (``lybra/analysis/lateral.py``): cada regla con su escenario mínimo.
 
 Puro: los hosts se construyen a mano, sin base de datos ni red.
 """
@@ -6,7 +6,7 @@ Puro: los hosts se construyen a mano, sin base de datos ni red.
 import pytest
 
 from lybra import GroupHost, assess_lateral_risk, propagation_score, segment_of
-from lybra.correlation import compute_dedup_key
+from lybra.analysis.correlation import compute_dedup_key
 
 pytestmark = pytest.mark.unit
 

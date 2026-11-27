@@ -1,4 +1,4 @@
-"""Tests unitarios de la capa pura de exposición en la nube (``lybra/cloud.py``).
+"""Tests unitarios de la capa pura de exposición en la nube (``lybra/recon/cloud.py``).
 
 Cubre la gramática de un recurso cloud: qué formas se aceptan, cuáles se
 rechazan y cómo se canonizan.
@@ -6,7 +6,7 @@ rechazan y cómo se canonizan.
 
 import pytest
 
-from lybra.cloud import CloudResource, parse_cloud_resource
+from lybra.recon.cloud import CloudResource, parse_cloud_resource
 
 pytestmark = pytest.mark.unit
 

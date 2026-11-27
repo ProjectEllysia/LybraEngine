@@ -20,10 +20,10 @@ from lybra import (
     select_site_names,
     site_finding,
 )
-from lybra.correlation import DEFAULT_SITE_VHOST
+from lybra.analysis.correlation import DEFAULT_SITE_VHOST
 from lybra.fingerprinting.tls import TlsInfo
-from lybra import scanner as scanner_module
-from lybra.scanner import discover_sites
+from lybra.core import scanner as scanner_module
+from lybra.core.scanner import discover_sites
 
 pytestmark = pytest.mark.unit
 

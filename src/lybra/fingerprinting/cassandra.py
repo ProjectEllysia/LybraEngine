@@ -32,7 +32,7 @@ import struct
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple
 
-from ..checks import is_cassandra_service
+from ..checks.framework import is_cassandra_service
 from .dispatch import Dissector, DissectorResult
 from .registry import register_dissector
 

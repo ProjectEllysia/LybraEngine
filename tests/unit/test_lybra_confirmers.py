@@ -12,14 +12,14 @@ corre si su CVE ya fue propuesta**, y **nunca explota**.
 
 import pytest
 
-from lybra.checks import (
+from lybra.checks.framework import (
     CheckRuntime,
     Response,
     Service,
     load_checks,
     validate_checks,
 )
-from lybra.correlation import compute_dedup_key, merge_findings
+from lybra.analysis.correlation import compute_dedup_key, merge_findings
 
 pytestmark = pytest.mark.unit
 

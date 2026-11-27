@@ -14,7 +14,7 @@ import socket
 import pytest
 
 from lybra import PortSweep, Service
-from lybra.scanner import (
+from lybra.core.scanner import (
     ScanAborted,
     ScanPhases,
     ScanRequest,

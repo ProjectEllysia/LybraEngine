@@ -17,7 +17,7 @@ nvd_window_days = 8
 # La clave de la API de NVD mejor en la variable LYBRA_NVD_API_KEY.
 
 [scan]
-# Cualquier campo de lybra.scanner.ScanSettings, por ejemplo:
+# Cualquier campo de lybra.core.scanner.ScanSettings, por ejemplo:
 # tcp_concurrency = 200
 # rate_limit_interval = 0.2
 

@@ -18,8 +18,8 @@ import threading
 
 import pytest
 
-from lybra.checks import Response
-from lybra.engine import Service
+from lybra.checks.framework import Response
+from lybra.core.engine import Service
 from lybra.fingerprinting.dispatch import (
     Dissector,
     DissectorResult,
@@ -53,7 +53,7 @@ class _RecordingDissector(Dissector):
 
 def _run_fingerprint(monkeypatch, dissector, services, pool_size=8, on_progress=None):
     """Ejecuta el fingerprint del motor con un dissector y un tope inyectados."""
-    from lybra import scanner as scanner_module
+    from lybra.core import scanner as scanner_module
 
     monkeypatch.setattr(scanner_module, "default_dissectors", lambda: [dissector])
     phases = scanner_module.ScanPhases(scanner_module.ScanSettings(
@@ -160,7 +160,7 @@ def test_a_dissector_that_raises_costs_only_its_own_service(monkeypatch):
 def test_the_check_runtime_walks_services_with_the_injected_mapper():
     """``CheckRuntime`` no monta hilos por su cuenta ni conoce la
     configuración: recibe el recorrido igual que ya recibe las sondas."""
-    from lybra.checks import CheckRuntime, load_checks
+    from lybra.checks.framework import CheckRuntime, load_checks
 
     calls = []
 
@@ -181,7 +181,7 @@ def test_the_check_runtime_walks_services_with_the_injected_mapper():
 def test_the_check_runtime_defaults_to_walking_them_one_by_one():
     """Sin mapper inyectado se comporta como siempre. El paralelismo es una
     decisión del manager, no del runtime."""
-    from lybra.checks import CheckRuntime, load_checks
+    from lybra.checks.framework import CheckRuntime, load_checks
 
     runtime = CheckRuntime(load_checks(), lambda *_args: Response(404, "", {}))
     assert runtime.run("10.0.0.5", _services(2)) == []
@@ -196,7 +196,7 @@ def test_the_response_cache_is_keyed_per_service_so_threads_never_collide():
     que la caché existe— y dos servicios distintos no compiten por ninguna
     entrada.
     """
-    from lybra.checks import CheckRuntime, load_checks
+    from lybra.checks.framework import CheckRuntime, load_checks
 
     requested = []
 

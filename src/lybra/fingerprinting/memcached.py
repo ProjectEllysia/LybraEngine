@@ -30,7 +30,7 @@ import socket
 from dataclasses import dataclass
 from typing import Callable, Optional, Tuple
 
-from ..checks import is_memcached_service
+from ..checks.framework import is_memcached_service
 from .dispatch import Dissector, DissectorResult
 from .registry import register_dissector
 

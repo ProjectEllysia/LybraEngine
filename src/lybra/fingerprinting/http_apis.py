@@ -44,7 +44,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
 
-from ..checks import HttpProbe, Response, is_admin_api_service
+from ..checks.framework import HttpProbe, Response, is_admin_api_service
 from .dispatch import Dissector, DissectorResult
 from .registry import register_dissector
 

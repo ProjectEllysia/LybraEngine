@@ -5,8 +5,8 @@ import json
 import pytest
 
 from lybra import Service, derive_api_checks, parse_specification
-from lybra.scanner import ScanPhases, ScanSettings
-from lybra.checks import CheckRuntime, Response, load_checks
+from lybra.core.scanner import ScanPhases, ScanSettings
+from lybra.checks.framework import CheckRuntime, Response, load_checks
 
 pytestmark = pytest.mark.unit
 

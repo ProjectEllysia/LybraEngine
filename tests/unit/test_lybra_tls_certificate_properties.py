@@ -15,7 +15,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
 from cryptography.x509.oid import NameOID
 
-from lybra.checks import CheckRuntime, Service, load_checks
+from lybra.checks.framework import CheckRuntime, Service, load_checks
 from lybra.fingerprinting.tls import TlsInfo, TlsProbe
 
 pytestmark = pytest.mark.unit

@@ -18,14 +18,14 @@ import threading
 
 import pytest
 
-from lybra import cli
-from lybra.checks import Response
+from lybra.app import cli
+from lybra.checks.framework import Response
 from lybra_client import LybraClient, LybraError
-from lybra.daemon import build_service_settings, serve
-from lybra.knowledge_base import KnowledgeBase
-from lybra.protocol import MAX_LINE_BYTES
-from lybra.scanner import ScanSettings
-from lybra.service import EngineService, ServiceSettings
+from lybra.app.daemon import build_service_settings, serve
+from lybra.kb.store import KnowledgeBase
+from lybra.app.protocol import MAX_LINE_BYTES
+from lybra.core.scanner import ScanSettings
+from lybra.app.service import EngineService, ServiceSettings
 
 from test_service import _FakePhases  # pylint: disable=import-error
 from test_service_passive import _FakeNetwork  # pylint: disable=import-error

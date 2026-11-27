@@ -41,7 +41,7 @@ import struct
 from dataclasses import dataclass
 from typing import Callable, Dict, Optional, Tuple
 
-from ..checks import is_postgres_service
+from ..checks.framework import is_postgres_service
 from .dispatch import Dissector, DissectorResult
 from .registry import register_dissector
 

@@ -7,7 +7,7 @@ señuelo: la misma respuesta con la práctica bien aplicada, que no debe dispara
 
 import pytest
 
-from lybra.checks import (
+from lybra.checks.framework import (
     CheckRuntime,
     Response,
     Service,

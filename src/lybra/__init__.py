@@ -71,7 +71,7 @@ decisión, con qué haría falta para reabrirla, está en el docstring de
 
 from __future__ import annotations
 
-from .engine import (
+from .core.engine import (
     LybraEngine,
     Service,
     services_from_payload,
@@ -79,21 +79,21 @@ from .engine import (
     QOD_INVENTORY_MATCH,
     CPE_PRODUCT_OVERRIDES,
 )
-from .end_of_life import check_end_of_life
-from .grouping import (
+from .analysis.end_of_life import check_end_of_life
+from .analysis.grouping import (
     ServiceGroup,
     build_service_rollup,
     group_label,
 )
-from .backports import apply_backport_verdicts, is_unverified_distro_package, BACKPORT_CHECK_ID
-from .distro import infer_distro_release, DistroRelease
-from .compliance import (
+from .analysis.backports import apply_backport_verdicts, is_unverified_distro_package, BACKPORT_CHECK_ID
+from .analysis.distro import infer_distro_release, DistroRelease
+from .analysis.compliance import (
     AttackTechnique,
     FindingCompliance,
     load_compliance_catalog,
     map_finding_compliance,
 )
-from .kb import (
+from .core.vulndata import (
     version_compare,
     split_distro_version,
     KB_MARK_SOURCES,
@@ -117,7 +117,7 @@ from .kb import (
     fetch_document,
     iter_nvd_pages,
 )
-from .osint import (
+from .recon.osint import (
     CREDENTIALED_SOURCES,
     PASSIVE_EXPOSURE_CATEGORY,
     QOD_THIRD_PARTY,
@@ -136,7 +136,7 @@ from .osint import (
     normalize_domain,
     suggest_cpe_findings,
 )
-from .dns_hygiene import (
+from .recon.dns_hygiene import (
     DNS_HYGIENE_CATEGORY,
     QOD_DNS_RECORD,
     DnsCheckResult,
@@ -144,7 +144,7 @@ from .dns_hygiene import (
     assess_dns_hygiene,
     is_valid_dkim_selector,
 )
-from .checks import (
+from .checks.framework import (
     load_checks,
     validate_checks,
     CheckRuntime,
@@ -169,12 +169,12 @@ from .checks import (
     ScriptContext,
     ScriptPlugin,
 )
-from .script_checks import (
+from .checks.script_checks import (
     SmbSigningNotRequiredPlugin,
     SnmpDefaultCommunityPlugin,
     default_script_plugins,
 )
-from .credentials import (
+from .checks.credentials import (
     load_credentials,
     validate_credentials,
     CredentialRuntime,
@@ -182,7 +182,7 @@ from .credentials import (
     CredentialPair,
     CREDENTIALS_FEED_VERSION,
 )
-from .correlation import (
+from .analysis.correlation import (
     classify_exposure,
     compute_dedup_key,
     merge_findings,
@@ -267,33 +267,33 @@ from .fingerprinting import (
     SnmpDissector,
     QOD_FINGERPRINT,
 )
-from .adapters import (
+from .ingest.adapters import (
     nikto_incident_to_finding,
     nuclei_result_to_finding,
     finding_to_json,
     QOD_NUCLEI_MATCH,
 )
-from .exporters import (
+from .reporting.exporters import (
     to_sarif,
     to_stix,
     to_ocsf,
 )
-from .planner import IDENTIFICATION_REVISION, CheckPlanner, KnownService
-from .crawler import CrawlResult, crawl, select_scan_directories
-from .api_surface import (
+from .core.planner import IDENTIFICATION_REVISION, CheckPlanner, KnownService
+from .web.crawler import CrawlResult, crawl, select_scan_directories
+from .web.api_surface import (
     ApiEndpoint,
     ApiSpecification,
     SPECIFICATION_PATHS,
     derive_checks as derive_api_checks,
     parse_specification,
 )
-from .lateral import (
+from .analysis.lateral import (
     GroupHost,
     assess_lateral_risk,
     propagation_score,
     segment_of,
 )
-from .cloud import (
+from .recon.cloud import (
     CLOUD_PROVIDERS,
     CloudProbe,
     CloudResource,
@@ -301,7 +301,7 @@ from .cloud import (
     load_takeover_signatures,
     parse_cloud_resource,
 )
-from .virtual_hosts import (
+from .web.virtual_hosts import (
     DEFAULT_SITE_CATEGORIES,
     SiteView,
     has_own_named_sites,
@@ -312,7 +312,7 @@ from .virtual_hosts import (
     select_site_names,
     site_finding,
 )
-from .transport import (
+from .net.transport import (
     AsyncConnectScanner,
     PortOutcome,
     PortSweep,

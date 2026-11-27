@@ -12,12 +12,12 @@ from datetime import timedelta
 import pytest
 
 from lybra import OsintSource
-from lybra._shared import utcnow_naive
-from lybra.checks import Response
-from lybra.engine import Service
-from lybra.knowledge_base import KnowledgeBase
-from lybra.osint_network import OsintSettings, PassiveNetwork, source_request
-from lybra.service import EngineService, ServiceSettings
+from lybra.core._shared import utcnow_naive
+from lybra.checks.framework import Response
+from lybra.core.engine import Service
+from lybra.kb.store import KnowledgeBase
+from lybra.recon.osint_network import OsintSettings, PassiveNetwork, source_request
+from lybra.app.service import EngineService, ServiceSettings
 
 from test_lybra_osint import CENSYS_PAYLOAD, CRTSH_PAYLOAD, SHODAN_PAYLOAD  # pylint: disable=import-error
 from test_service import _FakePhases, _error, _ok  # pylint: disable=import-error

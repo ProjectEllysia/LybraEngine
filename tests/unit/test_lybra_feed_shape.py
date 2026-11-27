@@ -23,7 +23,7 @@ from dataclasses import replace
 
 import pytest
 
-from lybra.checks import (
+from lybra.checks.framework import (
     CHECKS_FEED_VERSION,
     Matcher,
     Request,

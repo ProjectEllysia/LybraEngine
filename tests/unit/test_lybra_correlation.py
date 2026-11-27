@@ -316,7 +316,7 @@ def test_a_false_positive_never_expires_by_time():
 # puede quedarse vacía es peor que no tenerla, porque quien lee el modelo cree
 # que existe.
 
-from lybra.correlation import (   # noqa: E402
+from lybra.analysis.correlation import (   # noqa: E402
     exploit_maturity, EXPLOIT_MATURITY_LADDER,
 )
 
@@ -385,7 +385,7 @@ def test_a_finding_with_cvss_keeps_scoring_by_it():
 
 
 def test_check_findings_carry_their_declared_severity():
-    from lybra.checks import CheckRuntime, Response, Service, load_checks
+    from lybra.checks.framework import CheckRuntime, Response, Service, load_checks
 
     def fetch(host, port, method, path, _body=None, _headers=None):
         if path == "/wp-config.php":

@@ -1,0 +1,546 @@
+"""Correlation, deduplication, lifecycle and contextual scoring.
+
+This is what turns a flat list of per-scan findings into "the state of a
+vulnerability on an asset, over time" — the part of the product that is more than
+just running three scanners and reading three reports.
+
+Everything here is a pure function over finding dicts, so it can be unit-tested
+without a database and works no matter which scanner produced a finding. That
+scanner-independence is exactly what lets several sources fold into a single
+finding once Nikto and Nuclei also write to the shared ``Finding`` table.
+
+The module covers three concerns:
+
+Deduplication
+    :func:`compute_dedup_key` and :func:`merge_findings` collapse the same issue,
+    reported more than once or by more than one scanner, into a single finding.
+
+Lifecycle
+    :func:`apply_lifecycle` assigns each finding a state — ``open``, ``fixed``,
+    ``regressed`` or ``accepted`` — by comparing this scan against the previous
+    one of the same target.
+
+Contextual scoring
+    :func:`classify_exposure` and :func:`score_finding` produce a priority that
+    goes beyond raw CVSS: real-world exploitation signals push it up, and a
+    private (LAN) target caps it.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import re
+from datetime import datetime
+from typing import Dict, List, Optional, Tuple
+
+from ..core._shared import classify_exposure
+
+from .backports import is_unverified_distro_package
+
+#: El ``check_id`` de un hallazgo por versión cuya CVE sólo aplica con cierta
+#: configuración del servidor (ver ``applicability``). Vive aquí porque es la
+#: señal que :func:`score_finding` lee, y el motor la importa de aquí.
+CONDITIONAL_VERSION_CHECK_ID = "lybra:version-match-conditional@1"
+
+#: El ``vhost`` de un hallazgo sobre el sitio que la IP sirve a quien no dice
+#: nombre (sin SNI ni ``Host``). Cuando la IP aloja sitios con nombre, el
+#: certificado de ese sitio por defecto no es el que ve ningún visitante real:
+#: lo que dice es cierto, pero pesa poco, y :func:`score_finding` lo deja en LOW.
+DEFAULT_SITE_VHOST = "(sitio por defecto)"
+
+# The severity ladder, kept in one place so scoring and any future consumer agree
+# on the ordering.
+PRIORITY_LADDER = ["INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"]
+
+
+# =========================================================================
+# EXPOSURE
+# =========================================================================
+
+# ``classify_exposure`` se reexporta desde ``shared/`` y no se implementa aquí.
+# Estuvo duplicada con ``analyzers._classify_network_context`` por una razón
+# buena —esta capa no puede importar el módulo del escritor de IA, que arrastra
+# dependencias pesadas— con una consecuencia mala: una regla que acota la
+# prioridad de todo hallazgo en red privada **y** entra en el prompt del
+# informe, escrita dos veces. Si divergían, el scoring y el informe decían
+# cosas distintas del mismo host y nada lo detectaba.
+#
+# Importar de ``shared/`` no rompe la invariante del paquete: la restricción es
+# no tocar el ORM ni la red, no no importar nada.
+
+
+# =========================================================================
+# DEDUPLICATION
+# =========================================================================
+
+#: El sufijo de versión de un ``check_id`` (``@2`` en ``lybra:hsts@2``), que
+#: :func:`compute_dedup_key` quita para que la identidad de un hallazgo no
+#: cambie cuando se afina el check que lo produce.
+_CHECK_VERSION_RE = re.compile(r"@\d+$")
+
+
+def compute_dedup_key(finding: dict) -> str:
+    """Compute a stable key identifying the same issue on the same service.
+
+    The key is deliberately scanner-independent so that two scanners reporting
+    the same vulnerability produce the same key and get merged. It is built from
+    the host and port plus a "vulnerability identity", chosen in order of
+    preference: the CVE set if present (so any scanner naming that CVE merges),
+    otherwise the producing check, otherwise the finding's category.
+
+    Del check se toma su identificador **sin la versión** (``lybra:hsts@2`` →
+    ``lybra:hsts``). La versión dice con qué criterio se evaluó, no qué
+    problema es: si formara parte de la clave, afinar un check haría que su
+    hallazgo de siempre se diera por «corregido» y reapareciera como nuevo en
+    el siguiente escaneo, sin que nadie hubiera tocado el objetivo.
+
+    Un hallazgo **de red** (``host_id`` y ``port`` a ``None``, como los riesgos
+    de movimiento lateral) no pertenece a ningún host: lo que lo distingue de otro
+    hallazgo del mismo check es ``service``, que ahí lleva la identidad del riesgo.
+
+    Args:
+        finding: A finding dict, expected to carry ``host_id``, ``port`` and one
+            of ``cve_ids`` / ``check_id`` / ``category``.
+
+    Returns:
+        A 32-character hexadecimal digest.
+    """
+    host = finding.get("host_id")
+    port = finding.get("port")
+    cves = finding.get("cve_ids")
+    if cves:
+        identity = "cve:" + ",".join(sorted(cves))
+    elif finding.get("check_id"):
+        identity = "check:" + _CHECK_VERSION_RE.sub("", str(finding["check_id"]))
+    else:
+        identity = "cat:" + str(finding.get("category"))
+    material = f"{host}|{port}|{identity}"
+    if finding.get("category") == "web_component":
+        # Varios componentes (el CMS, cada librería) comparten el puerto y el
+        # check de inventario: lo que los distingue es el producto.
+        material += "|" + (finding.get("service") or "")
+    if finding.get("vhost"):
+        # Dos sitios detrás del mismo puerto son dos superficies: el mismo
+        # check sobre cada uno es un hallazgo distinto. Sólo se añade cuando
+        # hay sitio, para que un hallazgo sin nombre conserve la clave que ya
+        # tiene almacenada.
+        material += "|vhost:" + finding["vhost"]
+    protocol = (finding.get("protocol") or "tcp").lower()
+    if protocol != "tcp":
+        # La sonda UDP puede abrir el mismo número de puerto que ya
+        # vigilábamos por TCP (161 es el caso real: SNMP). Sin esto, un
+        # 161/tcp y un 161/udp del mismo host colisionarían bajo la misma
+        # identidad ("check:lybra:open-port@1") y uno pisaría al otro en el
+        # merge. Condicionado a "no tcp" para que un hallazgo TCP siga
+        # calculando la misma ``dedup_key`` que ya tiene almacenada: sólo el
+        # sufijo de protocolo cambiaría su forma, y sólo lo necesita UDP.
+        material += "|" + protocol
+    if port is None:
+        # A portless finding (an inventory-origin service, e.g. an installed
+        # package with nothing listening) has no port to disambiguate
+        # different assets that happen to share the same check/category
+        # identity, or even the same CVE. ``service`` carries the product
+        # name in that case (engine.py falls back to it when there is no
+        # service name), which stays stable across a version bump —
+        # mirroring how a port's own identity already stays stable across a
+        # network service's product/version changing.
+        material += "|" + (finding.get("service") or "")
+    return hashlib.sha256(material.encode()).hexdigest()[:32]
+
+
+def _union_cves(a: Optional[list], b: Optional[list]) -> Optional[list]:
+    """Merge two CVE-id lists into a sorted, de-duplicated list (or ``None``)."""
+    combined = sorted(set((a or []) + (b or [])))
+    return combined or None
+
+
+def merge_findings(findings: List[dict]) -> List[dict]:
+    """Collapse findings that share a dedup key into one, keeping the best signal.
+
+    When several findings describe the same issue, the merged result keeps the
+    highest ``qod`` (along with that finding's title and CVSS score), is marked
+    ``confirmed`` / ``in_kev`` if *any* input was, unions the CVE ids, and joins
+    the distinct sources into ``source`` (e.g. ``"lybra,nuclei"``). Es el
+    mecanismo de deduplicación dentro de un mismo escaneo: dos checks que
+    describen el mismo problema se cuentan una vez.
+
+    Args:
+        findings: Findings to merge. Each may already carry a ``dedup_key``; any
+            that do not get one computed on the fly.
+
+    Returns:
+        One finding per distinct dedup key. Every dict contains only ``Finding``
+        columns, so the result can be persisted or displayed directly.
+    """
+    merged: Dict[str, dict] = {}
+    sources: Dict[str, list] = {}
+    for original in findings:
+        finding = dict(original)
+        key = finding.get("dedup_key") or compute_dedup_key(finding)
+        finding["dedup_key"] = key
+        source = finding.get("source")
+
+        if key not in merged:
+            merged[key] = finding
+            sources[key] = [source] if source else []
+            continue
+
+        merged_finding = merged[key]
+        if (finding.get("qod") or 0) > (merged_finding.get("qod") or 0):
+            merged_finding["qod"] = finding.get("qod")
+            merged_finding["title"] = finding.get("title", merged_finding.get("title"))
+            merged_finding["cvss_score"] = finding.get("cvss_score", merged_finding.get("cvss_score"))
+        merged_finding["confirmed"] = bool(merged_finding.get("confirmed")) or bool(finding.get("confirmed"))
+        merged_finding["in_kev"] = bool(merged_finding.get("in_kev")) or bool(finding.get("in_kev"))
+        merged_finding["cve_ids"] = _union_cves(merged_finding.get("cve_ids"), finding.get("cve_ids"))
+        if source and source not in sources[key]:
+            sources[key].append(source)
+
+    for key, merged_finding in merged.items():
+        if sources[key]:
+            merged_finding["source"] = ",".join(sorted(set(sources[key])))
+    return list(merged.values())
+
+
+# =========================================================================
+# LIFECYCLE
+# =========================================================================
+
+def _carry_decision(finding: dict, prev: dict) -> None:
+    """Arrastrar el motivo, el autor y la caducidad al hallazgo de este escaneo.
+
+    Sin esto, la decisión sobreviviría como estado pero perdería su
+    justificación en el siguiente escaneo: un ``accepted`` sin motivo ni autor
+    es una decisión que nadie puede auditar después.
+    """
+    for field_name in ("state_reason", "state_set_by", "state_set_at", "state_expires_at"):
+        if prev.get(field_name) is not None:
+            finding[field_name] = prev[field_name]
+
+
+def _decision_expired(prev: dict, moment: datetime) -> bool:
+    """Si un riesgo aceptado ya ha cumplido su plazo de revisión.
+
+    Sin ``state_expires_at`` la decisión no caduca nunca.
+
+    Warning:
+        Una fila ``accepted`` sin ``state_expires_at`` no es un error de
+        datos: significa que nadie le puso plazo, y hay que seguir
+        tratándola como una aceptación indefinida en vez de inventarle una
+        fecha, que reabriría de golpe todas las aceptaciones antiguas que
+        nunca tuvieron plazo.
+    """
+    expires = prev.get("state_expires_at")
+    return expires is not None and expires <= moment
+
+
+def _engine_changed_its_mind(finding: dict, snapshot: dict) -> bool:
+    """Si lo que se enseña ahora ya no es lo que el usuario desmintió.
+
+    Un falso positivo se desmiente contra una detección concreta: este check,
+    resuelto contra este estado de la base de conocimiento. Si cambia
+    cualquiera de los dos, la detección de hoy no es la misma que se desmintió
+    —puede ser mejor, o simplemente otra— y mantener el desmentido escondería
+    un hallazgo que nadie ha revisado.
+
+    El ``dedup_key`` no basta para notarlo: se construye a partir del host, el
+    puerto y la identidad de la vulnerabilidad, y ninguno de los tres cambia
+    porque el motor aprenda algo nuevo.
+    """
+    for field_name in ("check_id", "feed_version"):
+        if finding.get(field_name) != snapshot.get(field_name):
+            return True
+    return False
+
+
+def apply_lifecycle(current: List[dict], previous: Dict[str, dict],
+                    close_missing: bool = True,
+                    now: Optional[datetime] = None) -> List[dict]:
+    """Assign each finding a lifecycle state relative to the previous scan.
+
+    Each current finding is labelled by comparing it against the previous scan of
+    the same target:
+
+    * Not seen before → ``open`` (a new finding).
+    * Seen before and marked ``false_positive`` → stays ``false_positive``,
+      salvo que el motor haya cambiado de opinión por su cuenta (ver abajo).
+    * Seen before and marked ``accepted`` → stays ``accepted`` hasta que caduca.
+    * Seen before as ``fixed`` and back now → ``regressed``.
+    * Otherwise (still present since last time) → ``open``.
+
+    **Las dos decisiones del usuario caducan de formas distintas, y a
+    propósito.** Aceptar un riesgo es decir "esto es real, lo asumo": tiene
+    sentido revisarlo pasado un tiempo, así que un ``accepted`` con
+    ``state_expires_at`` vencido vuelve a ``open``. Marcar un falso positivo es
+    decir "esto no es real, el motor se equivocó": el tiempo no lo invalida
+    —el motor no se equivoca más por ser más tarde— pero **el motor cambiando
+    sí**. Por eso un ``false_positive`` se reabre cuando cambia el ``check_id``
+    que lo produjo o el ``feed_version`` contra el que se resolvió: lo que el
+    usuario desmintió ya no es lo mismo que se le está enseñando ahora, y
+    arrastrar el desmentido escondería una detección nueva.
+
+    In addition, any issue that *was* present last time but is absent now is
+    carried forward once as a ``fixed`` finding, so the timeline records the
+    remediation. An already-``fixed`` issue is not carried again, which keeps this
+    bounded.
+
+    Args:
+        current: This scan's findings. Each must already have a ``dedup_key``.
+        previous: A map ``dedup_key -> {"state", "snapshot", ...}`` describing
+            the previous scan's findings. Las claves opcionales
+            ``state_reason``, ``state_set_by``, ``state_set_at`` y
+            ``state_expires_at`` llevan la decisión del usuario, que viaja con
+            el hallazgo al escaneo nuevo: si no se arrastrara, el motivo y el
+            autor se perderían en el siguiente escaneo y la decisión quedaría
+            sin justificación al día siguiente de tomarla.
+        now: El instante contra el que se juzga la caducidad de un
+            ``accepted``. Inyectable para que un test no dependa del reloj.
+        close_missing: Si un hallazgo que ya no aparece debe darse por
+            corregido. ``False`` cuando el escaneo **no vio todo el objetivo**
+            —un barrido que se quedó sin presupuesto de reloj— porque entonces
+            la ausencia no es evidencia de nada: lo que no se miró no se sabe
+            si sigue ahí. Sin esta salida, un escaneo incompleto le diría al
+            usuario que sus vulnerabilidades fueron remediadas cuando en
+            realidad nunca se comprobaron.
+
+    Returns:
+        The ``current`` findings with their ``state`` set, plus one ``fixed``
+        finding for each issue that has just disappeared (ninguno si
+        ``close_missing`` es ``False``).
+    """
+    moment = now or datetime.utcnow()
+    current_keys = set()
+    for finding in current:
+        key = finding["dedup_key"]
+        current_keys.add(key)
+        prev = previous.get(key)
+        if prev is None:
+            finding["state"] = "open"
+        elif prev["state"] == "false_positive":
+            if _engine_changed_its_mind(finding, prev["snapshot"]):
+                finding["state"] = "open"            # ya no es el mismo hallazgo desmentido
+            else:
+                finding["state"] = "false_positive"
+                _carry_decision(finding, prev)
+        elif prev["state"] == "accepted":
+            if _decision_expired(prev, moment):
+                finding["state"] = "open"            # toca volver a mirarlo
+            else:
+                finding["state"] = "accepted"
+                _carry_decision(finding, prev)
+        elif prev["state"] == "fixed":
+            finding["state"] = "regressed"           # was gone, has come back
+        else:
+            finding["state"] = "open"
+
+    carried: List[dict] = []
+    for key, prev in previous.items():
+        if not close_missing:
+            break
+        # ``false_positive`` no aparece en esta lista a propósito: un hallazgo
+        # que el usuario desmintió no puede "corregirse" al desaparecer,
+        # porque nunca fue un problema que arreglar.
+        if key not in current_keys and prev["state"] in ("open", "regressed", "accepted"):
+            ghost = dict(prev["snapshot"])
+            ghost["state"] = "fixed"
+            carried.append(ghost)
+    return current + carried
+
+
+def split_refutations(findings: List[dict]) -> Tuple[List[dict], List[dict]]:
+    """Separa las marcas de refutación de los hallazgos de verdad.
+
+    Un check refutador (``refutes`` en el feed) no describe un problema: dice
+    que otro no existe. Por eso no puede viajar como un hallazgo más por
+    ``merge_findings`` y ``apply_lifecycle`` —se persistiría como un hallazgo
+    abierto—, y se aparta aquí para aplicarlo después con
+    :func:`apply_refutations`.
+
+    Args:
+        findings: Los hallazgos que devolvió el runtime de checks.
+
+    Returns:
+        Tuple[List[dict], List[dict]]: ``(hallazgos, marcas)``. Las marcas son
+            los dicts que traen la clave ``_refutes``.
+    """
+    marks = [finding for finding in findings if finding.get("_refutes")]
+    return [finding for finding in findings if not finding.get("_refutes")], marks
+
+
+def apply_refutations(findings: List[dict], marks: List[dict]) -> List[dict]:
+    """Desmiente los hallazgos por versión que una observación directa contradice.
+
+    Cada marca dice «la CVE X no aplica al servicio de este puerto», porque el
+    propio servicio anunció la corrección (un OpenSSH que ofrece *strict kex*
+    no es vulnerable a Terrapin, diga lo que diga su versión). Los hallazgos
+    por versión de ese puerto que llevan esa CVE pasan a ``state="fixed"`` y
+    ``confirmed=False``, con el ``check_id`` del refutador como procedencia:
+    el mismo desenlace que un backport verificado, y por la misma razón —no se
+    ha remediado ahora, es que nunca estuvo—.
+
+    Se aplica **después** del ciclo de vida, igual que los backports: antes,
+    ``apply_lifecycle`` reasignaría el estado y borraría el veredicto.
+
+    Args:
+        findings: Los hallazgos del escaneo, ya con su ciclo de vida.
+        marks: Las marcas que devolvió :func:`split_refutations`.
+
+    Returns:
+        List[dict]: La misma lista, con los hallazgos desmentidos modificados.
+    """
+    refuted = {(mark.get("port"), mark["_refutes"]): mark.get("check_id") for mark in marks}
+    if not refuted:
+        return findings
+    for finding in findings:
+        if finding.get("category") != "outdated_software":
+            continue
+        for cve in finding.get("cve_ids") or ():
+            check_id = refuted.get((finding.get("port"), cve))
+            if check_id:
+                finding["state"] = "fixed"
+                finding["confirmed"] = False
+                finding["check_id"] = check_id
+                break
+    return findings
+
+
+# =========================================================================
+# CONTEXTUAL SCORING
+# =========================================================================
+
+def _cvss_band(cvss: float) -> int:
+    """Map a CVSS base score onto an index into :data:`PRIORITY_LADDER`."""
+    if cvss >= 9.0:
+        return 4  # CRITICAL
+    if cvss >= 7.0:
+        return 3  # HIGH
+    if cvss >= 4.0:
+        return 2  # MEDIUM
+    if cvss > 0.0:
+        return 1  # LOW
+    return 0      # INFO
+
+
+# Escalera de madurez de explotación, de menos a más grave. El orden importa:
+# `exploit_maturity` se queda con la evidencia más fuerte que haya, y "más
+# fuerte" es una posición en esta lista.
+EXPLOIT_MATURITY_LADDER = ["none", "poc", "functional", "weaponized", "in_the_wild"]
+
+# De los cinco niveles, hoy se producen tres: ``in_the_wild`` desde KEV,
+# ``poc`` desde las referencias que la propia NVD etiqueta como exploit, y
+# ``none`` cuando no consta ninguno. ``functional`` y ``weaponized`` necesitan
+# un catálogo de exploits (Exploit-DB, Metasploit) que es un feed externo
+# nuevo, con su sincronización y sus modos de fallo; se dejan declarados
+# porque la escalera es la del sector y recortarla obligaría a renumerar
+# después, pero **nada los escribe todavía** y este comentario existe para que
+# eso no se lea como un descuido.
+
+
+def exploit_maturity(in_kev: bool, evidence: Optional[str] = None) -> str:
+    """Cuánto de real es la explotación de una vulnerabilidad.
+
+    El scoring tenía dos señales de explotabilidad: KEV (booleano: se explota
+    en el mundo real) y EPSS (probabilidad a 30 días). Faltaba la de en medio,
+    que es la que más ayuda a decidir qué se arregla el lunes: **¿existe un
+    exploit público y qué tan usable es?** Un CVE con módulo de Metasploit es
+    una urgencia distinta de uno con una prueba de concepto en un gist, y los
+    dos lo son de uno sin nada público.
+
+    Args:
+        in_kev: Si la CVE está en el catálogo CISA KEV. Es la evidencia más
+            fuerte que hay —explotación activa confirmada— y gana siempre.
+        evidence: La madurez deducida de otras fuentes, o ``None`` si no hay
+            ninguna.
+
+    Returns:
+        Uno de :data:`EXPLOIT_MATURITY_LADDER`.
+    """
+    if in_kev:
+        return "in_the_wild"
+    if evidence in EXPLOIT_MATURITY_LADDER:
+        return evidence
+    return "none"
+
+
+def score_finding(finding: dict, exposure: str) -> str:
+    """Assign a finding a contextual priority label.
+
+    Starts from the CVSS band, then adjusts for real-world context:
+
+    * A real exploitation signal — the CVE is in KEV, or its EPSS score is at
+      least 0.5 — pushes the priority up one band.
+
+      ``exploit_maturity`` **no** entra aquí todavía, y es deliberado: los dos
+      niveles que justificarían subir una banda por sí solos —``weaponized`` y
+      ``functional``— no tienen hoy ninguna fuente que los produzca (harían
+      falta Metasploit o Exploit-DB, que son feeds externos nuevos), y el que
+      sí se produce, ``in_the_wild``, sale de KEV, que ya sube la banda por su
+      cuenta. Añadir la condición ahora sería una rama que no puede
+      dispararse nunca, código muerto disfrazado de lógica.
+    * Un hallazgo sin CVSS que trae ``severity`` —la que declara el check que
+      lo produjo— parte de ella: quien escribe el check sabe si lo que
+      encuentra es una fuga de credenciales o un aviso cosmético, y sin CVSS
+      no hay otra medida. Los ajustes siguientes se aplican encima.
+    * An actively-confirmed finding with no CVSS and no declared severity is
+      floored at MEDIUM, so a confirmed issue never reads as merely
+      informational.
+    * An unconfirmed match whose CVE only applies on a specific platform
+      (``required_os`` set — see ``CpeMatch.required_os``) is capped at
+      MEDIUM: Lybra has no OS-detection signal, so it cannot verify that
+      precondition, and treating an unverifiable "on Windows"-type CVE as
+      CRITICAL against every banner-matched host — regardless of its actual
+      OS — is exactly the false-positive pattern this cap closes. A
+      confirmed finding (Hygeia inventory, where the host's own OS is already
+      known) is exempt.
+    * Un hallazgo por versión de un paquete de distribución que la verificación
+      de backports no pudo contrastar (:func:`~.backports.is_unverified_distro_package`)
+      se limita a MEDIUM: la distribución puede haberlo corregido sin cambiar
+      el número, y un CRITICAL que sólo se apoya en ese número encabezaría el
+      informe con algo que nadie ha comprobado.
+    * Un hallazgo por versión cuya CVE sólo aplica con una opción concreta de
+      la configuración del servidor (``check_id`` =
+      :data:`CONDITIONAL_VERSION_CHECK_ID`) se limita a LOW: Lybra no puede
+      ver esa configuración desde fuera.
+    * Un hallazgo sobre el sitio por defecto de una IP que aloja sitios con
+      nombre (``vhost`` = :data:`DEFAULT_SITE_VHOST`) se limita a LOW: es
+      cierto para quien conecta sin nombre, pero ningún visitante real lo ve.
+    * A private-LAN target caps the priority at HIGH, since it is not exposed to
+      the internet.
+
+    Args:
+        finding: A finding dict, read for ``cvss_score`` / ``in_kev`` /
+            ``epss_score`` / ``confirmed`` / ``required_os``.
+        exposure: ``"private"`` or ``"public"``, as returned by
+            :func:`classify_exposure`.
+
+    Returns:
+        One of the labels in :data:`PRIORITY_LADDER`.
+    """
+    cvss = finding.get("cvss_score") or 0.0
+    band = _cvss_band(cvss)
+    declared = finding.get("severity") if finding.get("severity") in PRIORITY_LADDER else None
+    if cvss == 0.0 and declared:
+        band = PRIORITY_LADDER.index(declared)
+
+    if finding.get("in_kev") or (finding.get("epss_score") or 0.0) >= 0.5:
+        band = min(band + 1, len(PRIORITY_LADDER) - 1)
+
+    if finding.get("confirmed") and cvss == 0.0 and not declared:
+        band = max(band, PRIORITY_LADDER.index("MEDIUM"))
+
+    if finding.get("required_os") and not finding.get("confirmed"):
+        band = min(band, PRIORITY_LADDER.index("MEDIUM"))
+
+    if is_unverified_distro_package(finding):
+        band = min(band, PRIORITY_LADDER.index("MEDIUM"))
+
+    if finding.get("check_id") == CONDITIONAL_VERSION_CHECK_ID:
+        band = min(band, PRIORITY_LADDER.index("LOW"))
+
+    if finding.get("vhost") == DEFAULT_SITE_VHOST:
+        band = min(band, PRIORITY_LADDER.index("LOW"))
+
+    if exposure == "private":
+        band = min(band, PRIORITY_LADDER.index("HIGH"))
+
+    return PRIORITY_LADDER[band]

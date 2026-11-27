@@ -48,7 +48,7 @@ import logging
 import socket
 from typing import Callable, List, Optional, Sequence
 
-from ..engine import Service
+from ..core.engine import Service
 from .dispatch import Dissector, DissectorResult
 
 logger = logging.getLogger(__name__)

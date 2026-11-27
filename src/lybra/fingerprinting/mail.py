@@ -16,7 +16,7 @@ import socket
 from dataclasses import dataclass
 from typing import Callable, Optional, Tuple
 
-from ..checks import is_smtp_service, is_imap_service, is_pop3_service
+from ..checks.framework import is_smtp_service, is_imap_service, is_pop3_service
 from .dispatch import Dissector, DissectorResult
 from .registry import register_dissector
 

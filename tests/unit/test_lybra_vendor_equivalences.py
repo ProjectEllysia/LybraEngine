@@ -3,7 +3,7 @@
 import pytest
 
 from lybra import equivalent_vendors
-from lybra.kb import load_vendor_equivalences
+from lybra.core.vulndata import load_vendor_equivalences
 
 pytestmark = pytest.mark.unit
 

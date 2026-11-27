@@ -31,8 +31,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from lybra.kb import version_in_range
-from lybra.knowledge_base import KnowledgeBase
+from lybra.core.vulndata import version_in_range
+from lybra.kb.store import KnowledgeBase
 
 logger = logging.getLogger("import_ellysia_kb")
 

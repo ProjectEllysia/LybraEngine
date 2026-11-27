@@ -37,7 +37,7 @@ import struct
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from ..checks import is_mongodb_service
+from ..checks.framework import is_mongodb_service
 from .dispatch import Dissector, DissectorResult
 from .registry import register_dissector
 

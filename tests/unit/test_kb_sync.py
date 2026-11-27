@@ -14,12 +14,12 @@ from datetime import datetime
 
 import pytest
 
-from lybra import kb_sync
-from lybra.kb_queries import KnowledgeBasePhases
-from lybra.kb_sync import KnowledgeBaseSync, SyncSettings
-from lybra.knowledge_base import KnowledgeBase
-from lybra.scanner import ScanRequest, ScanSettings, run_scan
-from lybra.engine import Service
+from lybra.kb import sync as kb_sync
+from lybra.kb.queries import KnowledgeBasePhases
+from lybra.kb.sync import KnowledgeBaseSync, SyncSettings
+from lybra.kb.store import KnowledgeBase
+from lybra.core.scanner import ScanRequest, ScanSettings, run_scan
+from lybra.core.engine import Service
 
 pytestmark = pytest.mark.unit
 

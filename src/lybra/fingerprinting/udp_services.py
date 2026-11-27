@@ -51,7 +51,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple
 
-from ..checks import (
+from ..checks.framework import (
     is_dns_service,
     is_ike_service,
     is_mdns_service,
@@ -59,8 +59,8 @@ from ..checks import (
     is_netbios_service,
     is_ntp_service,
 )
-from ..transport import udp_send_recv
-from ..udp_payloads import (
+from ..net.transport import udp_send_recv
+from ..net.udp_payloads import (
     DNS_FLAG_RECURSION_AVAILABLE,
     ISAKMP_HEADER_SIZE,
     ISAKMP_PAYLOAD_SA,
@@ -74,6 +74,7 @@ from ..udp_payloads import (
 )
 from .dispatch import Dissector, DissectorResult
 from .registry import register_dissector
+from ..core._shared import FEEDS_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -564,7 +565,7 @@ ISAKMP_PAYLOAD_VID = 13
 # Feed de Vendor IDs conocidos: prefijo hex del VID → (producto, versión). Se
 # compara por prefijo porque muchos fabricantes anexan una versión o un hash a
 # un prefijo fijo que identifica el producto.
-_BUNDLED_IKE_VENDOR_IDS = Path(__file__).parent.parent / "feeds" / "ike_vendor_ids.json"
+_BUNDLED_IKE_VENDOR_IDS = FEEDS_DIR / "ike_vendor_ids.json"
 
 
 def load_ike_vendor_ids(path=None) -> List[Tuple[str, str, Optional[str]]]:

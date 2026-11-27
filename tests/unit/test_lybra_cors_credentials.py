@@ -10,7 +10,7 @@ solo, el hallazgo — por eso cada check exige las dos cosas a la vez.
 
 import pytest
 
-from lybra.checks import (
+from lybra.checks.framework import (
     CheckRuntime,
     Response,
     Service,

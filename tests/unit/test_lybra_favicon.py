@@ -11,7 +11,7 @@ import base64
 
 import pytest
 
-from lybra.checks import Response
+from lybra.checks.framework import Response
 from lybra.fingerprinting.favicon import (
     FaviconCatalog,
     FaviconEntry,
@@ -170,7 +170,7 @@ class _NullRateLimiter:
 
 def _probe_with_catalog(monkeypatch, catalog):
     from lybra.fingerprinting import http as http_module
-    from lybra.engine import Service
+    from lybra.core.engine import Service
 
     monkeypatch.setattr(http_module, "_FAVICON_CATALOG", catalog)
     recorder = _RecordingProbe()

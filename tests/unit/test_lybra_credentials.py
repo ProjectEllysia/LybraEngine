@@ -9,15 +9,15 @@ no aparece nunca en el hallazgo ni en su evidencia.
 
 import pytest
 
-from lybra.checks import Response, Service
-from lybra.credentials import (
+from lybra.checks.framework import Response, Service
+from lybra.checks.credentials import (
     CredentialEntry,
     CredentialPair,
     CredentialRuntime,
     load_credentials,
     validate_credentials,
 )
-from lybra.checks import Matcher
+from lybra.checks.framework import Matcher
 
 pytestmark = pytest.mark.unit
 
