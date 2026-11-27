@@ -13,8 +13,8 @@ import struct
 
 import pytest
 
-from lybra.checks import is_mssql_service
-from lybra.engine import Service
+from lybra.checks.framework import is_mssql_service
+from lybra.core.engine import Service
 from lybra.fingerprinting.mssql import (
     OPTION_ENCRYPTION,
     OPTION_TERMINATOR,
@@ -238,8 +238,8 @@ def test_the_product_name_has_an_alias_to_its_nvd_identity():
 
 def _encryption_findings(encryption):
     """Qué checks de cifrado disparan contra un SQL Server que anuncia ``encryption``."""
-    from lybra.checks import ScriptContext
-    from lybra.script_checks import MssqlEncryptionPlugin
+    from lybra.checks.framework import ScriptContext
+    from lybra.checks.script_checks import MssqlEncryptionPlugin
 
     fired = {}
     for plugin_id in ("mssql-encryption-not-supported", "mssql-encryption-not-required"):
@@ -268,8 +268,8 @@ def test_a_server_that_forces_encryption_fires_nothing(encryption):
 
 
 def test_a_prelogin_without_the_encryption_option_fires_nothing():
-    from lybra.checks import ScriptContext
-    from lybra.script_checks import MssqlEncryptionPlugin
+    from lybra.checks.framework import ScriptContext
+    from lybra.checks.script_checks import MssqlEncryptionPlugin
 
     for plugin_id in ("mssql-encryption-not-supported", "mssql-encryption-not-required"):
         probe, _sent = _probe_with(_prelogin_response(with_encryption=False))
@@ -278,8 +278,8 @@ def test_a_prelogin_without_the_encryption_option_fires_nothing():
 
 
 def test_the_encryption_checks_are_registered_and_ordered_by_severity():
-    from lybra.checks import load_checks
-    from lybra.script_checks import default_script_plugins
+    from lybra.checks.framework import load_checks
+    from lybra.checks.script_checks import default_script_plugins
 
     checks = {c.id: c for c in load_checks()}
     plugins = default_script_plugins()

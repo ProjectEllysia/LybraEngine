@@ -1,0 +1,136 @@
+name: CI
+
+on:
+  pull_request:
+    paths-ignore: ["**.md", "docs/**", "LICENSE"]
+  push:
+    branches: [main]
+    paths-ignore: ["**.md", "docs/**", "LICENSE"]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            client/pyproject.toml
+      - name: Install ruff
+        run: python -m pip install ruff==0.6.9
+      - name: Ruff (fatal errors only)
+        run: ruff check --select E9,F63,F7,F82 src client/src tests scripts
+      - name: Version consistency
+        run: python scripts/check_versions.py
+
+  engine-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            client/pyproject.toml
+      - name: Install (client first, the pin must resolve locally)
+        run: python -m pip install -e ./client -e ".[dev]"
+      - name: Tests
+        run: python -m pytest -n auto -ra
+      - name: Validate packaged config
+        run: >
+          python -c "from lybra.app.daemon import load_settings, build_service_settings as b;
+          b(load_settings('packaging/lybrad.toml'))"
+      - name: CLI smoke
+        run: |
+          lybra --help
+          lybrad --help
+
+  client-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            client/pyproject.toml
+      - name: Install
+        run: python -m pip install ./client pytest
+      - name: Tests
+        run: python -m pytest client/tests -ra
+
+  build:
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            client/pyproject.toml
+      - name: Build tools
+        run: python -m pip install build twine
+      - name: Build sdist and wheels
+        run: |
+          python -m build --outdir dist .
+          python -m build --outdir dist ./client
+      - name: Check metadata
+        run: twine check dist/*
+      - name: Install wheels in a clean venv and smoke
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install dist/lybra_client-*.whl
+          "$RUNNER_TEMP/venv/bin/pip" install --find-links dist dist/lybra_engine-*.whl
+          "$RUNNER_TEMP/venv/bin/lybra" --help
+          "$RUNNER_TEMP/venv/bin/lybrad" --help
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t lybra-engine:ci .
+      - name: Smoke
+        run: |
+          docker run --rm --entrypoint lybra lybra-engine:ci --help
+          docker run --rm lybra-engine:ci --help
+          docker run --rm --entrypoint python lybra-engine:ci -c "import lybra, lybra_client"

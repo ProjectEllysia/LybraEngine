@@ -226,7 +226,7 @@ def wait_until_serving(docker_path: Optional[str], port: int, tls: bool, label: 
         TimeoutError: Si el contenedor muere o no sirve su protocolo a tiempo.
     """
     # Import perezoso: este módulo se carga al recolectar y no debe arrastrar el motor.
-    from lybra.checks import negotiates_tls  # pylint: disable=import-outside-toplevel
+    from lybra.checks.framework import negotiates_tls  # pylint: disable=import-outside-toplevel
 
     deadline = time.monotonic() + timeout
     last = "sin intentos"

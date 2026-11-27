@@ -18,7 +18,7 @@ from lybra import (
     DEFAULT_PORTS,
     UDP_PROBES,
 )
-from lybra.transport import build_snmp_get_request
+from lybra.net.transport import build_snmp_get_request
 
 pytestmark = pytest.mark.unit
 
@@ -244,7 +244,7 @@ def test_udp_send_recv_swallows_oserror(monkeypatch):
     """El sender por defecto sí traga el fallo de red: es la costura que
     hace posible que scan_udp_ports_sync, en su forma de uso normal (sin
     sender inyectado), nunca lance por un puerto cerrado o inalcanzable."""
-    import lybra.transport as transport_module
+    import lybra.net.transport as transport_module
 
     class _RefusingSocket:
         def __enter__(self):
@@ -275,7 +275,7 @@ def test_udp_send_recv_resolves_ipv6_family(monkeypatch):
     """Contra un objetivo IPv6 la sonda debe abrir un socket AF_INET6, no el
     AF_INET fijo que hacía fallar toda sonda UDP contra ``::1`` en el
     connect() y lo confundía con un puerto cerrado."""
-    import lybra.transport as transport_module
+    import lybra.net.transport as transport_module
 
     opened_with = {}
 
@@ -444,7 +444,7 @@ class _FakeTcpSocket:
 
 def test_tcp_timestamps_are_read_from_tcp_info(monkeypatch):
     import socket as socket_module
-    from lybra.transport import tcp_timestamps_enabled
+    from lybra.net.transport import tcp_timestamps_enabled
 
     monkeypatch.setattr(socket_module, "TCP_INFO", 11, raising=False)
 
@@ -456,7 +456,7 @@ def test_tcp_timestamps_are_read_from_tcp_info(monkeypatch):
 
 def test_tcp_timestamps_unknown_when_the_connection_fails(monkeypatch):
     import socket as socket_module
-    from lybra.transport import tcp_timestamps_enabled
+    from lybra.net.transport import tcp_timestamps_enabled
 
     monkeypatch.setattr(socket_module, "TCP_INFO", 11, raising=False)
 
@@ -468,7 +468,7 @@ def test_tcp_timestamps_unknown_when_the_connection_fails(monkeypatch):
 
 def test_tcp_timestamps_unknown_off_linux(monkeypatch):
     import socket as socket_module
-    from lybra.transport import tcp_timestamps_enabled
+    from lybra.net.transport import tcp_timestamps_enabled
 
     monkeypatch.delattr(socket_module, "TCP_INFO", raising=False)
 
@@ -478,8 +478,8 @@ def test_tcp_timestamps_unknown_off_linux(monkeypatch):
 
 
 def test_the_tcp_timestamps_plugin_reports_once_per_host():
-    from lybra.checks import ScriptContext, Service
-    from lybra.script_checks import (
+    from lybra.checks.framework import ScriptContext, Service
+    from lybra.checks.script_checks import (
         TcpTimestampsPlugin,
         _TcpTimestampsCache,
     )

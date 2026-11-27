@@ -10,7 +10,7 @@ marcadores ``{{nombre}}`` en los valores de un matcher.
 
 import pytest
 
-from lybra.checks import (
+from lybra.checks.framework import (
     Check,
     CheckRuntime,
     Matcher,

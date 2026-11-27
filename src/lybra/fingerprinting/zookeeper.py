@@ -30,7 +30,7 @@ import struct
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Tuple
 
-from ..checks import is_zookeeper_service
+from ..checks.framework import is_zookeeper_service
 from .dispatch import Dissector, DissectorResult
 from .registry import register_dissector
 

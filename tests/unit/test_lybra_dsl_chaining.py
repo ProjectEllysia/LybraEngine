@@ -11,7 +11,7 @@ cadena, y un payload **nunca** supera el tope de expansiones.
 
 import pytest
 
-from lybra.checks import (
+from lybra.checks.framework import (
     Check,
     CheckRuntime,
     Extractor,

@@ -15,7 +15,7 @@ import yaml
 
 import pytest
 
-from lybra import checks as checks_mod
+from lybra.checks import framework as checks_mod
 from lybra import (
     load_checks,
     CheckRuntime,
@@ -712,7 +712,7 @@ def test_a_service_without_a_port_is_never_probed_for_tls(monkeypatch):
 
 
 def test_negotiates_tls_is_false_when_the_connection_fails():
-    from lybra.checks import negotiates_tls
+    from lybra.checks.framework import negotiates_tls
 
     def connect_que_falla(address, timeout):
         raise OSError("connection refused")
@@ -1315,7 +1315,7 @@ def test_the_smb_verdict_survives_renaming_the_fingerprint_label(monkeypatch):
     importa (el ``SecurityMode``), y el veredicto tiene que ser el mismo en los
     dos sentidos.
     """
-    from lybra import script_checks as script_module
+    from lybra.checks import script_checks as script_module
 
     original = script_module.fingerprint_smb
 
@@ -1430,7 +1430,7 @@ def test_snmp_check_in_bundled_feed():
 
 def test_bundled_feed_is_yaml():
     """El feed propio vive en YAML; el JSON no está soportado."""
-    from lybra.checks import _BUNDLED_FEED
+    from lybra.checks.framework import _BUNDLED_FEED
     assert _BUNDLED_FEED.suffix == ".yaml"
     assert _BUNDLED_FEED.exists()
 

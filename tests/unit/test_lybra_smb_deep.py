@@ -13,7 +13,7 @@ import struct
 
 import pytest
 
-from lybra.engine import Service
+from lybra.core.engine import Service
 from lybra.fingerprinting.smb import (
     AV_PAIR_NAMES,
     NTLM_CHALLENGE,
@@ -351,7 +351,7 @@ class _Context:
 
 
 def _plugin(messages):
-    from lybra.script_checks import SmbV1EnabledPlugin
+    from lybra.checks.script_checks import SmbV1EnabledPlugin
     probe, _sent = _probe_with(messages)
     return SmbV1EnabledPlugin(probe=probe)
 
@@ -366,8 +366,8 @@ def test_the_smbv1_check_stays_quiet_for_a_hardened_server():
 
 
 def test_the_smbv1_check_is_registered_and_wired_to_its_feed_entry():
-    from lybra.checks import load_checks
-    from lybra.script_checks import default_script_plugins
+    from lybra.checks.framework import load_checks
+    from lybra.checks.script_checks import default_script_plugins
 
     check = next(c for c in load_checks() if c.id == "smbv1-enabled")
     assert check.severity == "HIGH" and check.mode == "safe"

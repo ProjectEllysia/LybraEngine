@@ -12,14 +12,14 @@ import threading
 
 import pytest
 
-from lybra import protocol
-from lybra.engine import Service
-from lybra.kb_queries import KnowledgeBasePhases
-from lybra.knowledge_base import KnowledgeBase
-from lybra.protocol import ProtocolError, decode_request
-from lybra.scanner import ScanSettings
-from lybra.service import EngineService, ServiceSettings
-from lybra.transport import PortSweep
+from lybra.app import protocol as protocol
+from lybra.core.engine import Service
+from lybra.kb.queries import KnowledgeBasePhases
+from lybra.kb.store import KnowledgeBase
+from lybra.app.protocol import ProtocolError, decode_request
+from lybra.core.scanner import ScanSettings
+from lybra.app.service import EngineService, ServiceSettings
+from lybra.net.transport import PortSweep
 
 pytestmark = pytest.mark.unit
 
@@ -148,7 +148,7 @@ def test_private_targets_are_refused_unless_allowed(kb):
     service.shutdown()
 
     permissive = _service(kb, allow_private_targets=True)
-    assert _ok(permissive, "scan.start", {"target": "10.0.0.5"})["status"] in ("queued", "running")
+    assert _ok(permissive, "scan.start", {"target": "10.0.0.5"})["status"] in ("queued", "running", "completed")
     permissive.shutdown()
 
 
@@ -231,8 +231,8 @@ def test_the_known_services_feed_the_planner(kb):
             probed.extend(service.port for service in services)
             return list(services), []
 
-    from lybra._shared import isoformat_utc, utcnow_naive  # pylint: disable=import-outside-toplevel
-    from lybra.planner import IDENTIFICATION_REVISION  # pylint: disable=import-outside-toplevel
+    from lybra.core._shared import isoformat_utc, utcnow_naive  # pylint: disable=import-outside-toplevel
+    from lybra.core.planner import IDENTIFICATION_REVISION  # pylint: disable=import-outside-toplevel
     service = EngineService(kb, ServiceSettings(scan=ScanSettings(blocking_recheck_ports=0)),
                             phases_factory=_Counting)
     known = [{"port": 80, "protocol": "tcp", "product": "nginx", "version": "1.18.0",

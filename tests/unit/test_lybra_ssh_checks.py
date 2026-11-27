@@ -11,7 +11,7 @@ import struct
 import pytest
 
 from lybra import apply_refutations, split_refutations
-from lybra.checks import (
+from lybra.checks.framework import (
     Check,
     CheckRuntime,
     ScriptContext,
@@ -19,7 +19,7 @@ from lybra.checks import (
     load_checks,
     validate_checks,
 )
-from lybra.script_checks import (
+from lybra.checks.script_checks import (
     SshTerrapinPlugin,
     SshWeakAlgorithmsPlugin,
     _KexinitCache,

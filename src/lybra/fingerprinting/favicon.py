@@ -40,11 +40,12 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
+from ..core._shared import FEEDS_DIR
 
 
 # El feed vive junto a los demás de Lybra. Dos directorios arriba:
 # fingerprinting/favicon.py -> lybra/feeds/.
-_BUNDLED_FAVICON_HASHES = Path(__file__).parent.parent / "feeds" / "favicon_hashes.json"
+_BUNDLED_FAVICON_HASHES = FEEDS_DIR / "favicon_hashes.json"
 
 _C1 = 0xCC9E2D51
 _C2 = 0x1B873593

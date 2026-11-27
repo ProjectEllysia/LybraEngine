@@ -12,10 +12,10 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from lybra._shared import utcnow_naive
-from lybra.kb_queries import advisories_for_products, cve_detail, version_check
-from lybra.kb_sync import KnowledgeBaseSync, SyncSettings
-from lybra.knowledge_base import SCHEMA_VERSION, KnowledgeBase
+from lybra.core._shared import utcnow_naive
+from lybra.kb.queries import advisories_for_products, cve_detail, version_check
+from lybra.kb.sync import KnowledgeBaseSync, SyncSettings
+from lybra.kb.store import SCHEMA_VERSION, KnowledgeBase
 
 pytestmark = pytest.mark.unit
 

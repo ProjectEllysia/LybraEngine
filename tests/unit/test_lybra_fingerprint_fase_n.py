@@ -41,7 +41,7 @@ from lybra.fingerprinting.smb import (
     build_negotiate_request,
     _DIALECTS,
 )
-from lybra.engine import Service
+from lybra.core.engine import Service
 
 pytestmark = pytest.mark.unit
 

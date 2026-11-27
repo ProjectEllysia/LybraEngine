@@ -12,13 +12,13 @@ import struct
 
 import pytest
 
-from lybra.checks import (
+from lybra.checks.framework import (
     is_cassandra_service,
     is_memcached_service,
     is_zookeeper_service,
     load_checks,
 )
-from lybra.engine import Service
+from lybra.core.engine import Service
 from lybra.fingerprinting import default_dissectors
 from lybra.fingerprinting import cassandra as cql
 from lybra.fingerprinting import zookeeper as zk
@@ -42,7 +42,7 @@ from lybra.fingerprinting.zookeeper import (
     parse_get_children_response,
     parse_srvr_version,
 )
-from lybra.script_checks import (
+from lybra.checks.script_checks import (
     CassandraUnauthenticatedAccessPlugin,
     MemcachedUnauthenticatedAccessPlugin,
     ZookeeperUnauthenticatedAccessPlugin,
@@ -426,7 +426,7 @@ def test_the_dissectors_do_not_claim_each_others_services():
 
 
 def test_the_three_ports_are_swept_by_default_and_named():
-    from lybra.transport import DEFAULT_PORTS, WELL_KNOWN_PORTS
+    from lybra.net.transport import DEFAULT_PORTS, WELL_KNOWN_PORTS
 
     assert (WELL_KNOWN_PORTS[11211], WELL_KNOWN_PORTS[2181], WELL_KNOWN_PORTS[9042]) == \
         ("memcached", "zookeeper", "cassandra")

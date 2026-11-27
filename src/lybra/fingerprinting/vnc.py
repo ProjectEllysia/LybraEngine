@@ -17,7 +17,7 @@ import socket
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-from ..checks import is_vnc_service
+from ..checks.framework import is_vnc_service
 from .dispatch import Dissector, DissectorResult
 from .registry import register_dissector
 

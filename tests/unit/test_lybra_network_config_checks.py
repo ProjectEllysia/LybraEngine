@@ -11,7 +11,7 @@ encima de la sesión se inventaría capacidades que el transporte real no tiene)
 
 import pytest
 
-from lybra.checks import (
+from lybra.checks.framework import (
     CheckRuntime,
     NetworkProbe,
     Service,
@@ -69,7 +69,7 @@ def _fired(check_id, sock, service):
 
 
 def _telnet_plugin(reply):
-    from lybra.script_checks import TelnetEnabledPlugin
+    from lybra.checks.script_checks import TelnetEnabledPlugin
 
     class _Sock:
         def settimeout(self, _t):
@@ -109,7 +109,7 @@ def test_a_mute_or_non_telnet_port_23_is_not_flagged():
 
 
 def test_the_telnet_check_is_registered_and_wired():
-    from lybra.script_checks import default_script_plugins
+    from lybra.checks.script_checks import default_script_plugins
 
     check = next(c for c in _CHECKS if c.id == "telnet-enabled")
     assert check.service == "telnet" and check.severity == "HIGH"
@@ -120,7 +120,7 @@ def test_the_telnet_check_is_registered_and_wired():
 
 
 def _vnc_plugin(types):
-    from lybra.script_checks import VncNoAuthenticationPlugin
+    from lybra.checks.script_checks import VncNoAuthenticationPlugin
 
     class _Probe(VncProbe):
         def security_types(self, host, port=5900):
@@ -364,7 +364,7 @@ def test_the_implicit_tls_mail_ports_are_not_asked_for_starttls(service):
 
 
 def test_the_dot_terminated_read_stops_at_the_lone_dot_and_keeps_the_rest():
-    from lybra.checks import NetworkSession
+    from lybra.checks.framework import NetworkSession
 
     sock = _FakeNetSocket(greeting=b"+OK list\r\nUSER\r\n.\r\n+OK next\r\n")
     session = NetworkSession(sock)
@@ -527,8 +527,8 @@ class _WinrmProbe:
 
 
 def _winrm_run(response):
-    from lybra.checks import ScriptContext
-    from lybra.script_checks import WinrmBasicAuthCleartextPlugin
+    from lybra.checks.framework import ScriptContext
+    from lybra.checks.script_checks import WinrmBasicAuthCleartextPlugin
 
     probe = _WinrmProbe(response)
     context = ScriptContext(target="10.0.0.5", service=Service(5985, "tcp", "wsman", "", "", None))
@@ -536,7 +536,7 @@ def _winrm_run(response):
 
 
 def _winrm_401(authenticate, server="Microsoft-HTTPAPI/2.0", scheme="http"):
-    from lybra.checks import Response
+    from lybra.checks.framework import Response
     return Response(401, "", {"www-authenticate": authenticate, "server": server},
                     requested_scheme=scheme)
 
@@ -576,7 +576,7 @@ def test_a_winrm_that_does_not_answer_is_not_flagged():
 
 
 def test_winrm_is_only_asked_on_its_cleartext_port():
-    from lybra.script_checks import WinrmBasicAuthCleartextPlugin
+    from lybra.checks.script_checks import WinrmBasicAuthCleartextPlugin
 
     plugin = WinrmBasicAuthCleartextPlugin(probe=_WinrmProbe(None))
     assert plugin.applies(Service(5985, "tcp", "", "", "", None))
@@ -585,7 +585,7 @@ def test_winrm_is_only_asked_on_its_cleartext_port():
 
 
 def test_the_winrm_check_is_registered_and_wired_to_its_feed_entry():
-    from lybra.script_checks import default_script_plugins
+    from lybra.checks.script_checks import default_script_plugins
 
     check = next(c for c in _CHECKS if c.id == "winrm-basic-auth-cleartext")
     assert check.mode == "safe" and check.service == "winrm"

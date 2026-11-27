@@ -18,14 +18,14 @@ import threading
 
 import pytest
 
-from lybra import cli
-from lybra.checks import Response
+from lybra.app import cli
+from lybra.checks.framework import Response
 from lybra_client import LybraClient, LybraError
-from lybra.daemon import build_service_settings, serve
-from lybra.knowledge_base import KnowledgeBase
-from lybra.protocol import MAX_LINE_BYTES
-from lybra.scanner import ScanSettings
-from lybra.service import EngineService, ServiceSettings
+from lybra.app.daemon import build_service_settings, serve
+from lybra.kb.store import KnowledgeBase
+from lybra.app.protocol import MAX_LINE_BYTES
+from lybra.core.scanner import ScanSettings
+from lybra.app.service import EngineService, ServiceSettings
 
 from test_service import _FakePhases  # pylint: disable=import-error
 from test_service_passive import _FakeNetwork  # pylint: disable=import-error
@@ -134,9 +134,9 @@ def test_the_passive_and_cloud_operations_round_trip_through_the_socket(daemon, 
         client.cloud_probe()
     assert error.value.code == "invalid_params"
 
-    assert cli.main(["--socket", daemon, "cloud", "probe", "--resource", "s3:abierto"]) == 0
+    assert cli.main(["--socket", daemon, "--json", "cloud", "probe", "--resource", "s3:abierto"]) == 0
     assert json.loads(capsys.readouterr().out)["resources"] == ["s3:abierto"]
-    assert cli.main(["--socket", daemon, "osint", "hostnames", "93.184.216.34"]) == 0
+    assert cli.main(["--socket", daemon, "--json", "osint", "hostnames", "93.184.216.34"]) == 0
     assert json.loads(capsys.readouterr().out) == []
     assert cli.main(["--socket", daemon, "cloud", "probe"]) == 2
 
