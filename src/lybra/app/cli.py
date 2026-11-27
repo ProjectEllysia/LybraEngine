@@ -24,8 +24,12 @@ import sys
 from typing import List, Optional
 
 from lybra_client import LybraClient, LybraError
+from rich.text import Text
 
-_SEVERITY_ORDER = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+from lybra.app.ui.console import COLOR_MODES, make_consoles, symbols_for
+from lybra.app.ui import views
+from lybra.app.ui.findings import render_findings, render_result
+from lybra.app.ui.progress import PhaseView
 
 
 def _print_json(value) -> None:
@@ -34,22 +38,7 @@ def _print_json(value) -> None:
     sys.stdout.write("\n")
 
 
-def _print_findings(findings: List[dict]) -> None:
-    """Escribe los hallazgos como tabla, los más graves primero y los informativos al final."""
-    def key(finding: dict):
-        return (_SEVERITY_ORDER.get((finding.get("severity") or "").upper(), 4),
-                -(finding.get("cvssScore") or 0), finding.get("port") or 0)
-
-    for finding in sorted(findings, key=key):
-        where = f"{finding.get('port')}/{finding.get('protocol')}" if finding.get("port") else "-"
-        score = finding.get("cvssScore")
-        marks = "".join(mark for flag, mark in ((finding.get("inKev"), " [KEV]"),
-                                                (finding.get("state") == "fixed", " [corregido]")) if flag)
-        print(f"{where:>10}  {(f'{score:.1f}' if score is not None else '-'):>4}  {finding.get('title')}{marks}")
-    print(f"\n{len(findings)} hallazgos")
-
-
-def _scan(client: LybraClient, arguments) -> int:
+def _scan(client: LybraClient, arguments, out, err) -> int:
     """``lybra scan``: encola un escaneo y, salvo ``--no-wait``, espera y muestra el resultado."""
     scan_id = client.scan_start(
         arguments.target, profile=arguments.profile, aggressive=arguments.aggressive,
@@ -60,89 +49,91 @@ def _scan(client: LybraClient, arguments) -> int:
         print(scan_id)
         return 0
 
-    def show(progress: dict) -> None:
-        if not arguments.json:
-            total = progress.get("total") or 0
-            done = f" {progress.get('done')}/{total}" if total else ""
-            print(f"\r[{progress.get('status')}] {progress.get('phase') or '…'}{done}   ", end="", file=sys.stderr,
-                  flush=True)
-
-    final = client.scan_watch(scan_id, on_progress=show)
-    if not arguments.json:
-        print(file=sys.stderr)
+    if arguments.json:
+        final = client.scan_watch(scan_id, on_progress=lambda _progress: None)
+    else:
+        with PhaseView(err, arguments.target, arguments.profile) as view:
+            final = client.scan_watch(scan_id, on_progress=view)
+            view.finish(final["status"])
     if final["status"] == "failed":
-        print(f"El escaneo falló: {final.get('error', {}).get('message')}", file=sys.stderr)
+        _fail(err, f"El escaneo falló: {final.get('error', {}).get('message')}")
         return 1
-    return _show_result(client.scan_result(scan_id), arguments.json)
+    return _show_result(client.scan_result(scan_id), arguments.json, out)
 
 
-def _show_result(result: dict, as_json: bool) -> int:
-    """Muestra el resultado de un escaneo, como JSON o como tabla."""
+def _fail(err, message: str) -> None:
+    """Escribe un error en stderr, con ``✗`` y en rojo si hay color."""
+    text = Text(f"{symbols_for(err).err} {message}", style="err")
+    err.print(text, soft_wrap=True)
+
+
+def _show_result(result: dict, as_json: bool, out) -> int:
+    """Muestra el resultado de un escaneo, como JSON o como bloques agrupados."""
     if as_json:
         _print_json(result)
-        return 0
-    print(f"{result['target']}: {result['status']} ({len(result['services'])} servicios)")
-    if result["status"] == "partial":
-        print("Resultado PARCIAL: lo que no aparece no se ha comprobado.")
-    _print_findings(result["findings"])
+    else:
+        render_result(out, result)
     return 0
 
 
-def _analyze(client: LybraClient, arguments) -> int:
+def _analyze(client: LybraClient, arguments, out, err) -> int:
     """``lybra analyze``: las CVE de un producto o CPE en una versión, sin tocar la red."""
     if not (arguments.cpe or arguments.product):
-        print("Hace falta --cpe o --product", file=sys.stderr)
+        _fail(err, "Hace falta --cpe o --product")
         return 2
     service = {"version": arguments.version, "origin": "inventory"}
     service["cpe" if arguments.cpe else "product"] = arguments.cpe or arguments.product
     if arguments.enrich and not arguments.target:
-        print("--enrich necesita --target", file=sys.stderr)
+        _fail(err, "--enrich necesita --target")
         return 2
     result = client.analyze([service], enrich=arguments.enrich or None, target=arguments.target)
     if arguments.json:
         _print_json(result)
     else:
-        _print_findings(result["findings"])
+        render_findings(out, result["findings"])
     return 0
 
 
-def _passive(client: LybraClient, arguments) -> int:
-    """``lybra osint …`` y ``lybra cloud probe``: inteligencia pasiva y exposición cloud, en JSON."""
+def _emit(value, as_json: bool, out, render) -> None:
+    """Escribe ``value`` como JSON (``--json``) o con la vista ``render(out, value)``."""
+    if as_json:
+        _print_json(value)
+    else:
+        render(out, value)
+
+
+def _passive(client: LybraClient, arguments, out, err) -> int:
+    """``lybra osint ...`` y ``lybra cloud probe``: inteligencia pasiva y exposición cloud."""
     timeout = arguments.timeout or None
     if arguments.command == "cloud":
         if not (arguments.resource or arguments.subdomain):
-            print("Hace falta --resource o --subdomain", file=sys.stderr)
+            _fail(err, "Hace falta --resource o --subdomain")
             return 2
-        _print_json(client.cloud_probe(arguments.resource, arguments.subdomain, timeout_seconds=timeout))
+        _emit(client.cloud_probe(arguments.resource, arguments.subdomain, timeout_seconds=timeout),
+              arguments.json, out, views.render_cloud)
     elif arguments.osint_command == "domain":
-        _print_json(client.osint_domain(arguments.domain, sources=arguments.source or None,
-                                        dkim_selectors=arguments.dkim_selector or None, timeout_seconds=timeout))
+        _emit(client.osint_domain(arguments.domain, sources=arguments.source or None,
+                                  dkim_selectors=arguments.dkim_selector or None, timeout_seconds=timeout),
+              arguments.json, out, views.render_osint_domain)
     else:
-        _print_json(client.osint_hostnames(arguments.address, timeout_seconds=timeout))
+        names = client.osint_hostnames(arguments.address, timeout_seconds=timeout)
+        _emit(names, arguments.json, out, lambda console, value: views.render_hostnames(console, value,
+                                                                                         arguments.address))
     return 0
 
 
-def _kb(client: LybraClient, arguments) -> int:
-    """``lybra kb …``: estado, sincronización y consultas de la base de conocimiento."""
+def _kb(client: LybraClient, arguments, out) -> int:
+    """``lybra kb ...``: estado, sincronización y consultas de la base de conocimiento."""
     if arguments.kb_command == "status":
-        status = client.call("kb.status")
-        if arguments.json:
-            _print_json(status)
-            return 0
-        for entry in status["sources"]:
-            state = "VIEJA" if entry["isStale"] else ("sin verificar" if entry["isUnverified"] else "al día")
-            age = f"{entry['ageDays']} días" if entry["ageDays"] is not None else "nunca sincronizada"
-            error = f" — {entry['error']}" if entry["error"] else ""
-            print(f"{entry['source']:<20} {state:<14} {age}{error}")
-        print(f"\n{status['feedVersion']}")
-        return 0
-    if arguments.kb_command == "sync":
-        _print_json(client.call("kb.sync", {"source": arguments.source}))
-        return 0
-    if arguments.kb_command == "cve":
-        _print_json(client.call("kb.cve", {"cveId": arguments.cve_id}))
-        return 0
-    _print_json(client.call("kb.version", {"product": arguments.product, "version": arguments.version}))
+        _emit(client.call("kb.status"), arguments.json, out, views.render_kb_status)
+    elif arguments.kb_command == "sync":
+        _emit(client.call("kb.sync", {"source": arguments.source}), arguments.json, out, views.render_sync)
+    elif arguments.kb_command == "cve":
+        _emit(client.call("kb.cve", {"cveId": arguments.cve_id}), arguments.json, out, views.render_cve)
+    else:
+        _emit(client.call("kb.version", {"product": arguments.product, "version": arguments.version}),
+              arguments.json, out, lambda console, value: views.render_version(console, value, arguments.product,
+                                                                                arguments.version))
     return 0
 
 
@@ -158,11 +149,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--socket", help="ruta del socket de lybrad (por defecto LYBRA_SOCKET o "
                                          "/run/lybra/lybra.sock)")
     parser.add_argument("--json", action="store_true", help="salida en JSON")
+    parser.add_argument("--color", choices=COLOR_MODES, default="auto",
+                        help="color en la salida (respeta NO_COLOR y FORCE_COLOR con auto)")
+    # --json y --color también se aceptan tras la suborden; sin valor por defecto para no pisar el de arriba.
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+    common.add_argument("--color", choices=COLOR_MODES, default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     commands = parser.add_subparsers(dest="command", required=True)
 
-    commands.add_parser("info", help="versión del motor y estado de su base de conocimiento")
+    commands.add_parser("info", parents=[common], help="versión del motor y estado de su base de conocimiento")
 
-    scan = commands.add_parser("scan", help="escanear un objetivo")
+    scan = commands.add_parser("scan", parents=[common], help="escanear un objetivo")
     scan.add_argument("target", help="IP o nombre de host")
     scan.add_argument("--profile", choices=("fast", "standard", "thorough"), default="standard")
     scan.add_argument("--ports", help="puertos TCP separados por comas; sustituye al perfil")
@@ -176,41 +173,41 @@ def build_parser() -> argparse.ArgumentParser:
 
     for name, text in (("status", "estado de un escaneo"), ("result", "resultado de un escaneo"),
                        ("cancel", "cancelar un escaneo")):
-        command = commands.add_parser(name, help=text)
+        command = commands.add_parser(name, parents=[common], help=text)
         command.add_argument("scan_id")
 
-    analyze = commands.add_parser("analyze", help="CVE de un producto o CPE en una versión, sin red")
+    analyze = commands.add_parser("analyze", parents=[common], help="CVE de un producto o CPE en una versión, sin red")
     analyze.add_argument("--cpe")
     analyze.add_argument("--product")
     analyze.add_argument("--version", required=True)
     analyze.add_argument("--enrich", action="store_true", help="preguntar a Shodan y Censys por --target")
     analyze.add_argument("--target", help="la IP a la que pertenece el servicio (con --enrich)")
 
-    osint = commands.add_parser("osint", help="inteligencia pasiva: fuentes de terceros y DNS público")
+    osint = commands.add_parser("osint", parents=[common], help="inteligencia pasiva: fuentes de terceros y DNS público")
     osint_commands = osint.add_subparsers(dest="osint_command", required=True)
-    domain = osint_commands.add_parser("domain", help="subdominios, servicios vistos y higiene DNS de un dominio")
+    domain = osint_commands.add_parser("domain", parents=[common], help="subdominios, servicios vistos y higiene DNS de un dominio")
     domain.add_argument("domain")
     domain.add_argument("--source", action="append", choices=("crtsh", "shodan", "censys", "securitytrails"),
                         help="limita la consulta a esta fuente (repetible)")
     domain.add_argument("--dkim-selector", action="append", help="selector DKIM que comprobar (repetible)")
-    hostnames = osint_commands.add_parser("hostnames", help="nombres que Shodan y Censys asocian a una IP")
+    hostnames = osint_commands.add_parser("hostnames", parents=[common], help="nombres que Shodan y Censys asocian a una IP")
     hostnames.add_argument("address")
-    cloud = commands.add_parser("cloud", help="exposición cloud")
+    cloud = commands.add_parser("cloud", parents=[common], help="exposición cloud")
     cloud_commands = cloud.add_subparsers(dest="cloud_command", required=True)
-    probe = cloud_commands.add_parser("probe", help="recursos cloud abiertos y subdominios con takeover")
+    probe = cloud_commands.add_parser("probe", parents=[common], help="recursos cloud abiertos y subdominios con takeover")
     probe.add_argument("--resource", action="append", help="proveedor:identificador, p. ej. s3:bucket (repetible)")
     probe.add_argument("--subdomain", action="append", help="subdominio que comprobar (repetible)")
     for command in (domain, hostnames, probe):
         command.add_argument("--timeout", type=float, help="plazo del motor para la consulta, en segundos")
 
-    kb = commands.add_parser("kb", help="base de conocimiento")
+    kb = commands.add_parser("kb", parents=[common], help="base de conocimiento")
     kb_commands = kb.add_subparsers(dest="kb_command", required=True)
-    kb_commands.add_parser("status", help="estado de cada fuente")
-    sync = kb_commands.add_parser("sync", help="sincronizar en segundo plano")
+    kb_commands.add_parser("status", parents=[common], help="estado de cada fuente")
+    sync = kb_commands.add_parser("sync", parents=[common], help="sincronizar en segundo plano")
     sync.add_argument("--source", default="all", choices=("all", "nvd", "kev", "epss", "oval"))
-    cve = kb_commands.add_parser("cve", help="ficha de una CVE")
+    cve = kb_commands.add_parser("cve", parents=[common], help="ficha de una CVE")
     cve.add_argument("cve_id")
-    version = kb_commands.add_parser("version", help="CVE de un producto en una versión")
+    version = kb_commands.add_parser("version", parents=[common], help="CVE de un producto en una versión")
     version.add_argument("product")
     version.add_argument("version")
     return parser
@@ -228,29 +225,30 @@ def main(argv: Optional[List[str]] = None) -> int:
             falló; 2 por un uso incorrecto; 3 si no se pudo hablar con ``lybrad``.
     """
     arguments = build_parser().parse_args(argv)
+    out, err = make_consoles(arguments.color)
     client = LybraClient(arguments.socket)
     try:
         if arguments.command == "info":
-            _print_json(client.info())
+            _emit(client.info(), arguments.json, out, views.render_info)
         elif arguments.command == "scan":
-            return _scan(client, arguments)
+            return _scan(client, arguments, out, err)
         elif arguments.command == "status":
-            _print_json(client.scan_status(arguments.scan_id))
+            _emit(client.scan_status(arguments.scan_id), arguments.json, out, views.render_scan_status)
         elif arguments.command == "result":
-            return _show_result(client.scan_result(arguments.scan_id), arguments.json)
+            return _show_result(client.scan_result(arguments.scan_id), arguments.json, out)
         elif arguments.command == "cancel":
-            _print_json(client.scan_cancel(arguments.scan_id))
+            _emit(client.scan_cancel(arguments.scan_id), arguments.json, out, views.render_cancel)
         elif arguments.command == "analyze":
-            return _analyze(client, arguments)
+            return _analyze(client, arguments, out, err)
         elif arguments.command in ("osint", "cloud"):
-            return _passive(client, arguments)
+            return _passive(client, arguments, out, err)
         else:
-            return _kb(client, arguments)
+            return _kb(client, arguments, out)
     except LybraError as error:
-        print(f"Error del motor ({error.code}): {error.message}", file=sys.stderr)
+        _fail(err, f"Error del motor ({error.code}): {error.message}")
         return 1
     except OSError as error:
-        print(f"No se pudo hablar con lybrad en {client.socket_path}: {error}", file=sys.stderr)
+        _fail(err, f"No se pudo hablar con lybrad en {client.socket_path}: {error}")
         return 3
     return 0
 
