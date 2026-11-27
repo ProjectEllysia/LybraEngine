@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from typing import Dict, Set
 
-from lybra.checks import load_checks
+from lybra.checks.framework import load_checks
 
 HEADER_CATEGORY = "security_header"
 

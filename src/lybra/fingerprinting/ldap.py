@@ -40,7 +40,7 @@ import socket
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple
 
-from ..checks import is_ldap_service
+from ..checks.framework import is_ldap_service
 from .dispatch import Dissector, DissectorResult
 from .registry import register_dissector
 

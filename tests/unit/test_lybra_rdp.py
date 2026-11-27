@@ -14,8 +14,8 @@ import struct
 
 import pytest
 
-from lybra.checks import is_rdp_service
-from lybra.engine import Service
+from lybra.checks.framework import is_rdp_service
+from lybra.core.engine import Service
 from lybra.fingerprinting.rdp import (
     NEG_FAILURE,
     NEG_RESPONSE,
@@ -250,7 +250,7 @@ class _Context:
 
 
 def _plugin(reply):
-    from lybra.script_checks import RdpNlaNotRequiredPlugin
+    from lybra.checks.script_checks import RdpNlaNotRequiredPlugin
     probe, _sent = _probe_with(reply)
     return RdpNlaNotRequiredPlugin(probe=probe)
 
@@ -276,7 +276,7 @@ def test_the_check_stays_quiet_when_the_mode_could_not_be_read():
 
 
 def test_the_check_stays_quiet_without_evidence():
-    from lybra.script_checks import RdpNlaNotRequiredPlugin
+    from lybra.checks.script_checks import RdpNlaNotRequiredPlugin
 
     def refuse(_address, _timeout):
         raise ConnectionRefusedError("cerrado")
@@ -286,8 +286,8 @@ def test_the_check_stays_quiet_without_evidence():
 
 
 def test_the_check_is_registered_and_wired_to_its_feed_entry():
-    from lybra.checks import load_checks
-    from lybra.script_checks import default_script_plugins
+    from lybra.checks.framework import load_checks
+    from lybra.checks.script_checks import default_script_plugins
 
     check = next(c for c in load_checks() if c.id == "rdp-nla-not-required")
     assert check.severity == "HIGH" and check.mode == "safe"
@@ -299,7 +299,7 @@ def test_the_check_is_registered_and_wired_to_its_feed_entry():
 
 
 def _legacy_plugin(reply):
-    from lybra.script_checks import RdpLegacySecurityLayerPlugin
+    from lybra.checks.script_checks import RdpLegacySecurityLayerPlugin
     probe, _sent = _probe_with(reply)
     return RdpLegacySecurityLayerPlugin(probe=probe)
 
@@ -331,8 +331,8 @@ def test_the_two_rdp_checks_never_fire_together():
 
 
 def test_the_legacy_check_is_registered_and_more_severe_than_the_nla_one():
-    from lybra.checks import load_checks
-    from lybra.script_checks import default_script_plugins
+    from lybra.checks.framework import load_checks
+    from lybra.checks.script_checks import default_script_plugins
 
     checks = {c.id: c for c in load_checks()}
     legacy = checks["rdp-legacy-security-layer"]

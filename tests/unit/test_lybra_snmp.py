@@ -8,8 +8,8 @@ El codificador vive en ``transport.py`` (ver el docstring de
 
 import pytest
 
-from lybra.engine import Service
-from lybra.transport import build_snmp_get_request
+from lybra.core.engine import Service
+from lybra.net.transport import build_snmp_get_request
 from lybra.fingerprinting.snmp import (
     SnmpDissector,
     SnmpFingerprint,
@@ -205,7 +205,7 @@ def test_a_matched_pattern_raises_the_qod_of_the_finding():
     """La tabla del §10 del roadmap: 'banner que coincide con un patrón
     específico del producto: qod 80'. Un sysDescr sin reconocer se queda con la
     constante informativa de siempre."""
-    from lybra.engine import Service
+    from lybra.core.engine import Service
     from lybra.fingerprinting.dispatch import (
         QOD_FINGERPRINT,
     )

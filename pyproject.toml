@@ -21,8 +21,8 @@ dependencies = [
 ]
 
 [project.scripts]
-lybrad = "lybra.daemon:main"
-lybra = "lybra.cli:main"
+lybrad = "lybra.app.daemon:main"
+lybra = "lybra.app.cli:main"
 
 [project.optional-dependencies]
 # Sólo para scripts/import_ellysia_kb.py: copiar la base de conocimiento de una

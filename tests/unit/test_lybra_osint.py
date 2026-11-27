@@ -32,8 +32,8 @@ from lybra import (
     normalize_domain,
     suggest_cpe_findings,
 )
-from lybra.dns_hygiene import evaluate_spf_record
-from lybra.osint import build_exposed_service_finding
+from lybra.recon.dns_hygiene import evaluate_spf_record
+from lybra.recon.osint import build_exposed_service_finding
 
 pytestmark = pytest.mark.unit
 

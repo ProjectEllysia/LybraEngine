@@ -34,8 +34,8 @@ from __future__ import annotations
 import logging
 from typing import Iterable, List, Sequence
 
-from ..checks import Check
-from ..engine import Service
+from ..checks.framework import Check
+from ..core.engine import Service
 
 logger = logging.getLogger(__name__)
 

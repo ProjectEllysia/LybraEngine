@@ -15,8 +15,8 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 
-from lybra.checks import ScriptContext
-from lybra.engine import Service
+from lybra.checks.framework import ScriptContext
+from lybra.core.engine import Service
 from lybra.fingerprinting.tls_hello import (
     HANDSHAKE_CERTIFICATE,
     HANDSHAKE_SERVER_KEY_EXCHANGE,
@@ -25,7 +25,7 @@ from lybra.fingerprinting.tls_hello import (
     parse_certificate_message,
     parse_dhe_server_key_exchange,
 )
-from lybra.script_checks import (
+from lybra.checks.script_checks import (
     TlsIncompleteCertificateChainPlugin,
     TlsWeakKeyExchangeGroupPlugin,
     default_script_plugins,

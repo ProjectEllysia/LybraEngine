@@ -7,8 +7,8 @@ del mismo origen y con tres topes duros (páginas, profundidad, tiempo).
 
 import pytest
 
-from lybra.checks import Response
-from lybra.crawler import crawl
+from lybra.checks.framework import Response
+from lybra.web.crawler import crawl
 
 pytestmark = pytest.mark.unit
 
@@ -144,8 +144,8 @@ def test_a_zero_page_budget_does_no_fetch_at_all():
 
 def test_the_robots_finding_says_what_the_entries_are_without_calling_them_sensitive():
     from lybra import Service
-    from lybra.crawler import CrawlResult
-    from lybra.scanner import crawl_findings as _crawl_findings
+    from lybra.web.crawler import CrawlResult
+    from lybra.core.scanner import crawl_findings as _crawl_findings
 
     findings = _crawl_findings(Service(port=80, protocol="tcp", name="http"),
                                CrawlResult(robots_entries=["/backup/"]))

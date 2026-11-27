@@ -19,10 +19,10 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 
-from lybra.checks import CheckRuntime, ScriptContext, load_checks
-from lybra.engine import Service
+from lybra.checks.framework import CheckRuntime, ScriptContext, load_checks
+from lybra.core.engine import Service
 from lybra.fingerprinting.tls import TlsProbe, _legacy_protocol_context
-from lybra.script_checks import (
+from lybra.checks.script_checks import (
     TlsDeprecatedProtocolPlugin,
     default_script_plugins,
 )

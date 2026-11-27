@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from ..engine import Service
+from ..core.engine import Service
 
 
 # Quality of Detection de un hallazgo de fingerprint: informativo y nada más.

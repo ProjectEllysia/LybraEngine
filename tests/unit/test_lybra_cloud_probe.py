@@ -1,4 +1,4 @@
-"""La sonda de exposición en la nube (``lybra/cloud.py::CloudProbe``).
+"""La sonda de exposición en la nube (``lybra/recon/cloud.py::CloudProbe``).
 
 Pura: la petición HTTP y la resolución de CNAME se sustituyen por funciones que
 devuelven respuestas fabricadas, así que ninguna prueba sale a la red.
@@ -7,7 +7,7 @@ devuelven respuestas fabricadas, así que ninguna prueba sale a la red.
 import pytest
 
 from lybra import CloudProbe, load_takeover_signatures, parse_cloud_resource
-from lybra.checks import Response
+from lybra.checks.framework import Response
 
 pytestmark = pytest.mark.unit
 

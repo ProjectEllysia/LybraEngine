@@ -121,7 +121,7 @@ def _no_real_pacing_waits():
     Yields:
         None: El parche queda activo durante toda la sesión de tests.
     """
-    from lybra.checks import HostRateLimiter  # pylint: disable=import-outside-toplevel
+    from lybra.checks.framework import HostRateLimiter  # pylint: disable=import-outside-toplevel
 
     defaults = HostRateLimiter.__init__.__defaults__
     # ``__defaults__`` cubre los últimos parámetros posicionales, en orden.

@@ -25,7 +25,7 @@ from __future__ import annotations
 import logging
 from typing import Iterable, List, Optional
 
-from ..checks import Check, Matcher, Request
+from ..checks.framework import Check, Matcher, Request
 from .classifier import Bucket, classify_template
 
 logger = logging.getLogger(__name__)

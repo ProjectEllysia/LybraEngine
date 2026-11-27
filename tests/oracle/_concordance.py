@@ -1,7 +1,7 @@
 """Concordancia con Nmap: la vara de medir, fuera del producto.
 
 Estas tres funciones viven aquí, fuera del paquete que se despliega
-(``lybra/fingerprinting/concordance.py`` y ``lybra/transport.py``), porque
+(``lybra/fingerprinting/concordance.py`` y ``lybra/net/transport.py``), porque
 Lybra no tiene acoplamiento con escáneres de terceros, y la razón de que
 vivan en los tests en vez de no existir merece decirse entera.
 

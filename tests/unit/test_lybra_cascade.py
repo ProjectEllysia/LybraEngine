@@ -11,7 +11,7 @@ que el resto de sondas del paquete.
 
 import pytest
 
-from lybra.engine import Service
+from lybra.core.engine import Service
 from lybra.fingerprinting import default_dissectors
 from lybra.fingerprinting.cascade import (
     banner_readers,

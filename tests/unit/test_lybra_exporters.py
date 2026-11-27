@@ -6,7 +6,7 @@ tests construyen ese dict a mano en vez de levantar un escaneo real.
 
 import pytest
 
-from lybra.exporters import to_sarif, to_stix, to_ocsf
+from lybra.reporting.exporters import to_sarif, to_stix, to_ocsf
 
 pytestmark = pytest.mark.unit
 

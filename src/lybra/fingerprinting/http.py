@@ -46,10 +46,11 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Pattern, Tuple
 
-from ..checks import HttpProbe, Response, is_http_service
+from ..checks.framework import HttpProbe, Response, is_http_service
 from .dispatch import Dissector, DissectorResult, QOD_FINGERPRINT
 from .favicon import FaviconCatalog, favicon_hash as favicon_hash_value
 from .registry import register_dissector
+from ..core._shared import FEEDS_DIR
 
 
 @dataclass(frozen=True)
@@ -180,7 +181,7 @@ _SOURCE_CONFIDENCE: Dict[str, float] = {
 # The signature feed, in the package's feeds/ directory alongside every other
 # Lybra feed (checks_feed.json for the check runtime, ...) — see
 # load_tech_signatures. Two directories up: fingerprinting/http.py -> lybra/feeds/.
-_BUNDLED_TECH_SIGNATURES = Path(__file__).parent.parent / "feeds" / "tech_signatures.json"
+_BUNDLED_TECH_SIGNATURES = FEEDS_DIR / "tech_signatures.json"
 
 
 @dataclass(frozen=True)

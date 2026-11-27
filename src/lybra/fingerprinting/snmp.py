@@ -58,10 +58,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, List, Optional, Pattern
 
-from ..checks import is_snmp_service
-from ..transport import build_snmp_get_request, udp_send_recv
+from ..checks.framework import is_snmp_service
+from ..net.transport import build_snmp_get_request, udp_send_recv
 from .dispatch import Dissector, DissectorResult, QOD_FINGERPRINT
 from .registry import register_dissector
+from ..core._shared import FEEDS_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +73,7 @@ _SYSDESCR_OID_TLV = bytes.fromhex("06082b06010201010100")
 
 # El feed de patrones, junto al resto de feeds de Lybra. Dos directorios
 # arriba: fingerprinting/snmp.py -> lybra/feeds/.
-_BUNDLED_SYSDESCR_PATTERNS = Path(__file__).parent.parent / "feeds" / "sysdescr_patterns.json"
+_BUNDLED_SYSDESCR_PATTERNS = FEEDS_DIR / "sysdescr_patterns.json"
 
 # El ``qod`` de una versión extraída por un patrón específico del producto: 80,
 # por encima del 70 de un CPE genérico y por debajo de una evidencia

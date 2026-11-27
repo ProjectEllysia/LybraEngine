@@ -1,5 +1,5 @@
 {
-  "_comment": "Instantánea curada de endoflife.date; se refresca a mano con scripts/refresh_eol_catalog.py. Ver lybra/end_of_life.py.",
+  "_comment": "Instantánea curada de endoflife.date; se refresca a mano con scripts/refresh_eol_catalog.py. Ver lybra/analysis/end_of_life.py.",
   "feedVersion": "lybra-eol-1",
   "products": {
     "apache:zookeeper": [

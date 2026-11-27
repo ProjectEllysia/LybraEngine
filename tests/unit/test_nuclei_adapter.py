@@ -5,7 +5,7 @@ Pure functions over dicts (one decoded JSONL line) — no DB, no subprocess.
 
 import pytest
 
-from lybra.adapters import nuclei_result_to_finding, finding_to_json, QOD_NUCLEI_MATCH
+from lybra.ingest.adapters import nuclei_result_to_finding, finding_to_json, QOD_NUCLEI_MATCH
 
 pytestmark = pytest.mark.unit
 
