@@ -233,3 +233,50 @@ def test_each_command_renders_plain_and_keeps_json(fake_client, capsys, argv):
 
     assert cli.main([*argv, "--json"]) == 0
     assert capsys.readouterr().out == json.dumps(value, ensure_ascii=False, indent=2) + "\n"
+
+
+def test_kb_backfill_keyboard_interrupt(monkeypatch, tmp_path, capsys):
+    from lybra.kb.sync import KnowledgeBaseSync
+
+    def interrupt_backfill(self, start, end, on_progress=None):
+        if on_progress:
+            on_progress({"phase": "backfill", "done": 1, "total": 10, "cves": 5, "hasApiKey": True})
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(KnowledgeBaseSync, "backfill_nvd", interrupt_backfill)
+    kb_path = tmp_path / "test.db"
+    assert cli.main(["kb", "backfill", "--since", "2024-01-01", "--until", "2024-01-07", "--kb", str(kb_path)]) == 130
+    captured = capsys.readouterr()
+    assert "backfill interrumpido" in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_kb_backfill_json_keyboard_interrupt(monkeypatch, tmp_path, capsys):
+    from lybra.kb.sync import KnowledgeBaseSync
+
+    monkeypatch.setattr(KnowledgeBaseSync, "backfill_nvd", lambda *a, **kw: (_ for _ in ()).throw(KeyboardInterrupt()))
+    kb_path = tmp_path / "test.db"
+    assert cli.main(["kb", "backfill", "--since", "2024-01-01", "--kb", str(kb_path), "--json"]) == 130
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "Operación cancelada por el usuario" in captured.err
+
+
+def test_scan_keyboard_interrupt(monkeypatch, capsys):
+    monkeypatch.setattr(LybraClient, "scan_start", lambda self, *a, **kw: "scan-1")
+
+    def interrupt_watch(self, scan_id, on_progress=None):
+        if on_progress:
+            on_progress({"phase": "discovery", "done": 1, "total": 2})
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(LybraClient, "scan_watch", interrupt_watch)
+    assert cli.main(["scan", "127.0.0.1"]) == 130
+    captured = capsys.readouterr()
+    assert "Operación cancelada por el usuario" in captured.err
+
+
+def test_command_keyboard_interrupt(monkeypatch, capsys):
+    monkeypatch.setattr(LybraClient, "info", lambda self: (_ for _ in ()).throw(KeyboardInterrupt()))
+    assert cli.main(["info"]) == 130
+    assert "Operación cancelada por el usuario" in capsys.readouterr().err

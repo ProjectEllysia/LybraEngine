@@ -53,9 +53,17 @@ def _scan(client: LybraClient, arguments, out, err) -> int:
     if arguments.json:
         final = client.scan_watch(scan_id, on_progress=lambda _progress: None)
     else:
+        cancelled = False
         with PhaseView(err, arguments.target, arguments.profile) as view:
-            final = client.scan_watch(scan_id, on_progress=view)
-            view.finish(final["status"])
+            try:
+                final = client.scan_watch(scan_id, on_progress=view)
+                view.finish(final["status"])
+            except KeyboardInterrupt:
+                view.finish("cancelled")
+                cancelled = True
+        if cancelled:
+            _fail(err, "Operación cancelada por el usuario.")
+            return 130
     if final["status"] == "failed":
         _fail(err, f"El escaneo falló: {final.get('error', {}).get('message')}")
         return 1
@@ -188,7 +196,11 @@ def _kb_backfill(client: LybraClient, arguments, out, err) -> int:
             _print_json(summary)
         else:
             with BackfillView(err, arguments.since, arguments.until) as view:
-                summary = run_backfill(view)
+                try:
+                    summary = run_backfill(view)
+                except KeyboardInterrupt:
+                    view.finish(False)
+                    return 130
                 view.finish(True)
             views.render_backfill(out, summary)
     except Exception as error:
@@ -312,6 +324,9 @@ def main(argv: Optional[List[str]] = None) -> int:
             return _passive(client, arguments, out, err)
         else:
             return _kb(client, arguments, out, err)
+    except KeyboardInterrupt:
+        _fail(err, "Operación cancelada por el usuario.")
+        return 130
     except LybraError as error:
         _fail(err, f"Error del motor ({error.code}): {error.message}")
         return 1
