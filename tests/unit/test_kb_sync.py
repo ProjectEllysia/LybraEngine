@@ -210,3 +210,23 @@ def test_nvd_pause_constants_and_backfill(kb, feeds):
 
     with pytest.raises(ValueError, match="tiene que ser anterior"):
         sync.backfill_nvd(datetime(2026, 1, 2), datetime(2026, 1, 1))
+
+
+def test_backfill_reports_progress_per_batch_within_a_window(kb, monkeypatch):
+    from lybra.kb import sync as sync_mod
+
+    fake_items = [
+        {"cve": {"id": f"CVE-2026-{i:04d}", "descriptions": [{"lang": "en", "value": "d"}],
+                 "lastModified": "2026-01-02T00:00:00.000"}}
+        for i in range(5)
+    ]
+    monkeypatch.setattr(sync_mod, "NVD_BATCH_SIZE", 2)
+    monkeypatch.setattr(sync_mod, "iter_nvd_pages", lambda *a, **kw: iter(fake_items))
+
+    events = []
+    sync = KnowledgeBaseSync(kb, _settings(), sleep=lambda _s: None)
+    total = sync.sync_nvd_backfill("https://nvd.invalid", datetime(2026, 1, 1), datetime(2026, 1, 5),
+                                   on_progress=events.append)
+
+    assert total == 5
+    assert [(e["done"], e["cves"]) for e in events] == [(0, 0), (0, 2), (0, 4), (1, 5)]
