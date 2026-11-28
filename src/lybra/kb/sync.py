@@ -258,16 +258,20 @@ class KnowledgeBaseSync:
         for index, (window_start, window_end) in enumerate(windows):
             if index > 0:
                 self._sleep(NVD_PAUSE_WITH_KEY if effective_key else NVD_PAUSE_NO_KEY)
-            if on_progress is not None:
-                on_progress({
-                    "phase": "backfill",
-                    "done": index,
-                    "total": len(windows),
-                    "cves": total,
-                    "windowStart": window_start.date().isoformat(),
-                    "windowEnd": window_end.date().isoformat(),
-                    "hasApiKey": bool(effective_key),
-                })
+
+            def emit_progress(done: int, cves: int) -> None:
+                if on_progress is not None:
+                    on_progress({
+                        "phase": "backfill",
+                        "done": done,
+                        "total": len(windows),
+                        "cves": cves,
+                        "windowStart": window_start.date().isoformat(),
+                        "windowEnd": window_end.date().isoformat(),
+                        "hasApiKey": bool(effective_key),
+                    })
+
+            emit_progress(index, total)
             batch: list = []
             count = 0
             for item in iter_nvd_pages(base_url, window_start.strftime(_NVD_DATE_FORMAT),
@@ -278,19 +282,11 @@ class KnowledgeBaseSync:
                 if len(batch) >= NVD_BATCH_SIZE:
                     count += self._write_cves(batch)
                     batch = []
+                    emit_progress(index, total + count)
             count += self._write_cves(batch)
             logger.info("KB: NVD %s → %s, %d CVE", window_start.date(), window_end.date(), count)
             total += count
-            if on_progress is not None:
-                on_progress({
-                    "phase": "backfill",
-                    "done": index + 1,
-                    "total": len(windows),
-                    "cves": total,
-                    "windowStart": window_start.date().isoformat(),
-                    "windowEnd": window_end.date().isoformat(),
-                    "hasApiKey": bool(effective_key),
-                })
+            emit_progress(index + 1, total)
         return total
 
     def backfill_nvd(self, start: datetime, end: Optional[datetime] = None,
