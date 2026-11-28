@@ -24,6 +24,8 @@ from typing import Callable, Dict, List, Optional
 
 from ..core._shared import isoformat_utc, utcnow_naive
 from ..core.vulndata import (
+    NVD_PAUSE_NO_KEY,
+    NVD_PAUSE_WITH_KEY,
     fetch_epss,
     fetch_kev,
     fetch_oval,
@@ -223,7 +225,8 @@ class KnowledgeBaseSync:
         return count
 
     def sync_nvd_backfill(self, base_url: str, start: datetime, end: Optional[datetime] = None,
-                          api_key: Optional[str] = None) -> int:
+                          api_key: Optional[str] = None,
+                          on_progress: Optional[Callable[[dict], None]] = None) -> int:
         """
         Espeja todas las CVE de NVD modificadas entre ``start`` y ``end``.
 
@@ -237,32 +240,107 @@ class KnowledgeBaseSync:
             start: Desde cuándo.
             end: Hasta cuándo; ``None`` es ahora. Por defecto ``None``.
             api_key: Clave de la API de NVD, o ``None``. Por defecto ``None``.
+            on_progress: Recibe el progreso de cada ventana. Por defecto ``None``.
 
         Returns:
             int: Cuántas CVE se escribieron en total.
         """
+        effective_key = api_key if api_key is not None else self.settings.nvd_api_key
         end = end or utcnow_naive()
-        total = 0
+        windows: List[tuple[datetime, datetime]] = []
         window_start = start
         while window_start < end:
-            if window_start != start:
-                self._sleep(6.0)
             window_end = min(window_start + timedelta(days=NVD_MAX_WINDOW_DAYS), end)
+            windows.append((window_start, window_end))
+            window_start = window_end
+
+        total = 0
+        for index, (window_start, window_end) in enumerate(windows):
+            if index > 0:
+                self._sleep(NVD_PAUSE_WITH_KEY if effective_key else NVD_PAUSE_NO_KEY)
+
+            def emit_progress(done: int, cves: int) -> None:
+                if on_progress is not None:
+                    on_progress({
+                        "phase": "backfill",
+                        "done": done,
+                        "total": len(windows),
+                        "cves": cves,
+                        "windowStart": window_start.date().isoformat(),
+                        "windowEnd": window_end.date().isoformat(),
+                        "hasApiKey": bool(effective_key),
+                    })
+
+            emit_progress(index, total)
             batch: list = []
             count = 0
             for item in iter_nvd_pages(base_url, window_start.strftime(_NVD_DATE_FORMAT),
-                                       window_end.strftime(_NVD_DATE_FORMAT), api_key):
+                                       window_end.strftime(_NVD_DATE_FORMAT), effective_key):
                 parsed = ingest_nvd_cve(item)
                 if parsed:
                     batch.append(parsed)
                 if len(batch) >= NVD_BATCH_SIZE:
                     count += self._write_cves(batch)
                     batch = []
+                    emit_progress(index, total + count)
             count += self._write_cves(batch)
             logger.info("KB: NVD %s → %s, %d CVE", window_start.date(), window_end.date(), count)
             total += count
-            window_start = window_end
+            emit_progress(index + 1, total)
         return total
+
+    def backfill_nvd(self, start: datetime, end: Optional[datetime] = None,
+                     api_key: Optional[str] = None,
+                     on_progress: Optional[Callable[[dict], None]] = None) -> dict:
+        """
+        Realiza un llenado histórico completo de NVD, reconstruye el índice y anota el estado.
+
+        Args:
+            start: Desde cuándo.
+            end: Hasta cuándo; ``None`` es ahora.
+            api_key: Clave de la API de NVD, o ``None``.
+            on_progress: Recibe el progreso.
+
+        Returns:
+            dict: Resumen del backfill.
+        """
+        base_url = self.settings.sources.get("nvd")
+        if not base_url:
+            raise ValueError("la fuente 'nvd' no está configurada")
+        actual_end = end or utcnow_naive()
+        if start >= actual_end:
+            raise ValueError("'since' tiene que ser anterior a 'until'")
+        effective_key = api_key if api_key is not None else self.settings.nvd_api_key
+        try:
+            rows = self.sync_nvd_backfill(str(base_url), start, actual_end, api_key=effective_key, on_progress=on_progress)
+        except Exception as error:
+            self._record("nvd", error=f"{type(error).__name__}: {error}")
+            raise
+        self._record("nvd", rows_upserted=rows)
+        # We need total_windows count for the index phase progress event
+        # Let's calculate total_windows again or keep it
+        total_windows = 0
+        w_start = start
+        while w_start < actual_end:
+            total_windows += 1
+            w_start = min(w_start + timedelta(days=NVD_MAX_WINDOW_DAYS), actual_end)
+
+        if on_progress is not None:
+            on_progress({
+                "phase": "index",
+                "done": total_windows,
+                "total": total_windows,
+                "cves": rows,
+                "hasApiKey": bool(effective_key),
+            })
+        aliases = self.kb.rebuild_cpe_product_index()
+        return {
+            "cves": rows,
+            "cpeProductAliases": aliases,
+            "since": start.date().isoformat(),
+            "until": actual_end.date().isoformat(),
+            "usedApiKey": bool(effective_key),
+        }
 
     def _write_cves(self, batch: list) -> int:
         """Escribe un lote de CVE en una transacción y devuelve cuántas eran."""

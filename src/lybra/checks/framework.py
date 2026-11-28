@@ -1931,6 +1931,7 @@ class CheckRuntime:
         mapper: Optional[Callable] = None,
         capture_evidence: bool = False,
         max_payload_expansions: int = 25,
+        on_check: Optional[Callable[[Check, Service], None]] = None,
     ) -> None:
         self._checks = list(checks)
         self._fetch = fetch
@@ -1939,6 +1940,7 @@ class CheckRuntime:
         self._tls_fetch = tls_fetch
         self._network_open = network_open
         self._script_plugins = dict(script_plugins or {})
+        self._on_check = on_check
         # El tope de expansiones de un payload: un check que fuzzea corta
         # aquí, pase lo que pase, para que no se vuelva un barrido de fuerza
         # bruta. El manager lo inyecta desde la config; el default de 25 es el
@@ -2099,6 +2101,8 @@ class CheckRuntime:
                     if check.refutes and check.refutes not in self._proposed_cves:
                         continue
                     self._raise_if_cancelled()
+                    if self._on_check is not None:
+                        self._on_check(check, service)
                     finding = family.run_check(check, self._host, service)
                     if finding is not None:
                         findings.append(finding)

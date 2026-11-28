@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lybra-engine"
-version = "0.2.0"
+version = "0.2.1"
 description = "Motor de detección de vulnerabilidades de red: descubrimiento, fingerprinting, checks activos y correlación con NVD/KEV/EPSS."
 readme = "README.md"
 license = "GPL-3.0-only"
@@ -12,7 +12,7 @@ license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
     # El cliente vive en client/ y se instala antes que el motor (ver el README).
-    "lybra-client==0.2.0",
+    "lybra-client==0.2.1",
     "cryptography>=41.0.4",
     "dnspython>=2.4",
     "paramiko>=3.4",

@@ -1,0 +1,32 @@
+services:
+  lybrad:
+    build: .
+    image: lybra-engine:latest
+    container_name: lybra
+    restart: unless-stopped
+    volumes:
+      - lybra_kb:/var/lib/lybra
+      - lybra_run:/run/lybra
+    environment:
+      - LYBRA_NVD_API_KEY
+      - LYBRA_SHODAN_API_KEY
+      - LYBRA_CENSYS_API_KEY
+      - LYBRA_SECURITYTRAILS_API_KEY
+    # Descomentar la siguiente línea para permitir objetivos en redes privadas, loopback o link-local:
+    # command: ["--allow-private-targets"]
+
+# Ejemplo de cómo otro contenedor cliente puede montar el socket del motor:
+#
+#   services:
+#     client-app:
+#       image: my-pentest-client:latest
+#       volumes:
+#         - lybra_run:/run/lybra
+#       group_add:
+#         - "990"
+#       environment:
+#         - LYBRA_SOCKET=/run/lybra/lybra.sock
+
+volumes:
+  lybra_kb:
+  lybra_run:

@@ -1,0 +1,96 @@
+.TH LYBRAD 8 "2026-11-28" "LybraEngine 0.2.1" "Manual de administración del sistema"
+.SH NOMBRE
+lybrad \- demonio del motor de detección de vulnerabilidades LybraEngine
+.SH SINOPSIS
+.B lybrad
+[\fB\-\-config\fR \fIRUTA\fR]
+[\fB\-\-socket\fR \fIRUTA\fR]
+[\fB\-\-kb\fR \fIRUTA\fR]
+[\fB\-\-allow\-private\-targets\fR]
+[\fB\-\-log\-level\fR \fINIVEL\fR]
+.SH DESCRIPCIÓN
+.B lybrad
+es el servicio en segundo plano de LybraEngine. Expone una API sobre un socket
+Unix para recibir peticiones del cliente
+.BR lybra (1)
+o de integraciones externas, gestiona la cola de escaneos concurrentes,
+mantiene sincronizada la base de conocimiento SQLite (NVD, CISA KEV, EPSS y
+avisos OVAL/CSAF) y aplica controles anti\-SSRF bloqueando objetivos en redes
+privadas salvo que se habilite explícitamente.
+.SH OPCIONES
+.TP
+.BR \-h ", " \-\-help
+Muestra la ayuda resumida y sale.
+.TP
+.BI \-\-config " RUTA"
+Fichero de configuración TOML. Por defecto lee
+.I /etc/lybra/lybrad.toml
+si existe.
+.TP
+.BI \-\-socket " RUTA"
+Ruta del socket Unix de escucha. Tiene prioridad sobre \fBLYBRA_SOCKET\fR y
+sobre el valor de configuración (por defecto \fI/run/lybra/lybra.sock\fR).
+.TP
+.BI \-\-kb " RUTA"
+Ruta del fichero SQLite de la base de conocimiento. Tiene prioridad sobre
+\fBLYBRA_KB\fR y sobre la configuración (por defecto
+.IR /var/lib/lybra/kb.sqlite ).
+.TP
+.B \-\-allow\-private\-targets
+Permite escanear objetivos en redes privadas, de loopback o link\-local. Útil
+en laboratorios locales, VPNs o auditorías internas cuando el acceso al socket
+Unix está restringido a usuarios de confianza.
+.TP
+.BI \-\-log\-level " NIVEL"
+Nivel de registro estándar de Python (p. ej. \fBDEBUG\fR, \fBINFO\fR,
+\fBWARNING\fR, \fBERROR\fR). Por defecto \fBINFO\fR.
+.SH ENTORNO
+.TP
+.B LYBRA_SOCKET
+Ruta del socket Unix si no se especifica \fB\-\-socket\fR.
+.TP
+.B LYBRA_KB
+Ruta de la base de conocimiento SQLite si no se especifica \fB\-\-kb\fR.
+.TP
+.B LYBRA_NVD_API_KEY
+Clave de API de NVD para acelerar las sincronizaciones periódicas.
+.TP
+.BR LYBRA_SHODAN_API_KEY ", " LYBRA_CENSYS_API_KEY ", " LYBRA_SECURITYTRAILS_API_KEY
+Claves de API para fuentes OSINT externas. Para Censys debe tener el formato
+\fI<API_ID>:<secreto>\fR.
+.SH FICHEROS
+.TP
+.I /etc/lybra/lybrad.toml
+Configuración principal en formato TOML (secciones \fB[daemon]\fR, \fB[kb]\fR,
+\fB[scan]\fR y \fB[osint]\fR).
+.TP
+.I /etc/systemd/system/lybrad.service
+Unidad de servicio de systemd (ejecuta el demonio como usuario/grupo
+\fBlybra\fR).
+.TP
+.I /run/lybra/lybra.sock
+Socket Unix por defecto. Los usuarios autorizados deben pertenecer al grupo
+\fBlybra\fR (configurable mediante \fBsocket_group\fR).
+.TP
+.I /var/lib/lybra/kb.sqlite
+Base de conocimiento SQLite por defecto.
+.SH EJEMPLOS
+Arrancar manualmente para un laboratorio de pentesting local:
+.PP
+.nf
+.RS
+lybrad \-\-kb ./kb.sqlite \-\-socket ./lybra.sock \-\-allow\-private\-targets
+.RE
+.fi
+.PP
+Gestionar el servicio systemd instalado:
+.PP
+.nf
+.RS
+sudo systemctl status lybrad
+sudo journalctl \-u lybrad \-f
+.RE
+.fi
+.SH VÉASE TAMBIÉN
+.BR lybra (1),
+.BR systemctl (1)

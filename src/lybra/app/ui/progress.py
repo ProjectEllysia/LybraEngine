@@ -38,22 +38,25 @@ class PhaseView:
         console: La consola de stderr.
     """
 
-    def __init__(self, console: Console, target: str, profile: str) -> None:
+    def __init__(self, console: Console, target: str, profile: str, verbose: bool = False) -> None:
         """
         Args:
             console: La consola de stderr.
             target: El objetivo del escaneo.
             profile: El perfil (``fast``, ``standard``, ``thorough``).
+            verbose: Si se escribe una línea por cada check o subfase ejecutada.
         """
         self.console = console
         self.target = target
         self.profile = profile
+        self.verbose = verbose
         self._sym = symbols_for(console)
         self._live: Optional[Live] = None
         self._closed: List[Tuple[str, float, str]] = []   # (fase, segundos, estado)
         self._phase: Optional[str] = None
         self._started = time.monotonic()
         self._progress: Dict = {}
+        self._last_detail: Optional[str] = None
 
     # --- ciclo de vida
 
@@ -74,14 +77,28 @@ class PhaseView:
             self._live = None
 
     def __call__(self, progress: dict) -> None:
-        """Procesa un evento de avance (``status``, ``phase``, ``done``, ``total``)."""
+        """Procesa un evento de avance (``status``, ``phase``, ``done``, ``total``, ``detail``, ``events``)."""
         phase = progress.get("phase")
         if phase != self._phase and (phase is not None or self._phase is not None):
             self._close("ok")
             self._phase = phase
             self._started = time.monotonic()
+            self._last_detail = None
             if self._live is None and phase:
                 self.console.print(Text(f"{self._sym.sep} {phase_name(phase)}", style="muted"))
+        if self.verbose:
+            events = progress.get("events")
+            if events:
+                for event in events:
+                    message = event.get("message") if isinstance(event, dict) else str(event)
+                    if message:
+                        self._emit_detail(message)
+                        self._last_detail = message
+            else:
+                detail = progress.get("detail")
+                if detail and detail != self._last_detail:
+                    self._emit_detail(detail)
+                    self._last_detail = detail
         self._progress = progress
 
     def finish(self, status: str = "completed") -> None:
@@ -107,6 +124,13 @@ class PhaseView:
             self.console.print(self._done_line(self._phase, elapsed, state))
         self._phase = None
 
+    def _emit_detail(self, message: str) -> None:
+        line = Text(f"  {self._sym.sep} {message}", style="muted")
+        if self._live is not None:
+            self._live.console.print(line)
+        else:
+            self.console.print(line)
+
     def _done_line(self, phase: str, elapsed: float, state: str) -> Text:
         mark = {"ok": self._sym.ok, "warn": self._sym.warn, "err": self._sym.err}[state]
         return Text(f"{mark} {phase_name(phase):<15}{_seconds(elapsed)}", style=state)
@@ -117,12 +141,126 @@ class PhaseView:
         if self._phase is not None or not self._closed:
             total = self._progress.get("total") or 0
             done = self._progress.get("done") or 0
+            detail = self._progress.get("detail")
             row = Table.grid(padding=(0, 1))
             for _ in range(5):
                 row.add_column(no_wrap=True)
             bar = ProgressBar(total=total, completed=min(done, total), width=20) if total else ""
-            row.add_row(Spinner("dots", style="brand"), Text(f"{phase_name(self._phase):<14}"), bar,
-                        Text(f"{done}/{total}" if total else "", style="muted"),
-                        Text(_seconds(time.monotonic() - self._started), style="muted"))
+            cells: List = [
+                Spinner("dots", style="brand"),
+                Text(f"{phase_name(self._phase):<14}"),
+                bar,
+                Text(f"{done}/{total}" if total else "", style="muted"),
+                Text(_seconds(time.monotonic() - self._started), style="muted"),
+            ]
+            if detail:
+                row.add_column(no_wrap=True, overflow="ellipsis")
+                cells.append(Text(f"{self._sym.sep} {detail}", style="muted"))
+            row.add_row(*cells)
             lines.append(row)
         return Group(*lines)
+
+
+class BackfillView:
+    """Muestra el progreso del backfill histórico de NVD en stderr.
+
+    Attributes:
+        console: La consola de stderr.
+        since: Fecha inicial.
+        until: Fecha final opcional.
+    """
+
+    def __init__(self, console: Console, since: str, until: Optional[str] = None) -> None:
+        self.console = console
+        self.since = since
+        self.until = until
+        self._sym = symbols_for(console)
+        self._live: Optional[Live] = None
+        self._progress: Dict = {}
+        self._started = time.monotonic()
+        self._warned = False
+        self._warn_line: Optional[Text] = None
+        self._last_done = 0
+
+    def __enter__(self) -> "BackfillView":
+        header = Text(f"{self._sym.brand} lybra", style="brand")
+        header.append(f" {self._sym.sep} kb backfill {self._sym.sep} desde {self.since}"
+                      + (f" hasta {self.until}" if self.until else ""))
+        self.console.print(header)
+        if is_live(self.console):
+            self._live = Live(self, console=self.console, refresh_per_second=10, transient=False)
+            self._live.start()
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        if self._live is not None:
+            self._live.stop()
+            self._live = None
+
+    def __call__(self, progress: dict) -> None:
+        if not self._warned and progress.get("hasApiKey") is False:
+            self._warned = True
+            self._warn_line = Text(f"{self._sym.warn} Sin LYBRA_NVD_API_KEY: NVD limita a ~1 petición/6s (con clave baja a 0.65s).", style="warn")
+            if self._live is None:
+                self.console.print(self._warn_line)
+        
+        phase = progress.get("phase")
+        done = progress.get("done", 0)
+        total = progress.get("total", 0)
+        
+        if self._live is None:
+            if phase == "index" and self._progress.get("phase") != "index":
+                self.console.print(Text(f"{self._sym.sep} índice CPE", style="muted"))
+            elif phase == "backfill" and done > self._last_done:
+                ws = progress.get("windowStart", "")
+                we = progress.get("windowEnd", "")
+                self.console.print(Text(f"{self._sym.sep} {ws} → {we} ({done}/{total})", style="muted"))
+
+        if phase == "backfill" and done > self._last_done:
+            self._last_done = done
+        self._progress = progress
+
+    def finish(self, ok: bool = True) -> None:
+        if self._live is not None:
+            self._live.refresh()
+            self._live.stop()
+            self._live = None
+        elapsed = time.monotonic() - self._started
+        mark = self._sym.ok if ok else self._sym.err
+        msg = "backfill completado" if ok else "backfill interrumpido"
+        self.console.print(Text(f"{mark} {msg}  {_seconds(elapsed)}", style="ok" if ok else "err"))
+
+    def __rich__(self) -> Group:
+        lines: List = []
+        if self._warn_line is not None and self._live is not None:
+            lines.append(self._warn_line)
+        
+        phase = self._progress.get("phase")
+        total = self._progress.get("total") or 0
+        done = self._progress.get("done") or 0
+        cves = self._progress.get("cves") or 0
+        window_start = self._progress.get("windowStart")
+        window_end = self._progress.get("windowEnd")
+
+        row = Table.grid(padding=(0, 1))
+        for _ in range(5):
+            row.add_column(no_wrap=True)
+
+        bar = ProgressBar(total=total, completed=min(done, total), width=20) if total else ""
+        if phase == "index":
+            label = "índice CPE"
+        elif window_start and window_end:
+            label = f"{window_start} → {window_end}"
+        else:
+            label = "descargando NVD"
+
+        row.add_row(
+            Spinner("dots", style="brand"),
+            Text(f"{label:<22}"),
+            bar,
+            Text(f"{done}/{total}" if total else "", style="muted"),
+            Text(f"{cves} CVE", style="muted") if cves or phase == "backfill" else Text("", style="muted")
+        )
+        lines.append(row)
+        return Group(*lines)
+
