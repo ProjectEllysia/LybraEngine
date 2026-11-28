@@ -1,4 +1,5 @@
 # Configuración de lybrad (/etc/lybra/lybrad.toml). Todas las claves son opcionales.
+# Consulta la referencia exhaustiva en docs/configuracion.md para más detalles.
 
 [daemon]
 socket = "/run/lybra/lybra.sock"
@@ -17,9 +18,16 @@ nvd_window_days = 8
 # La clave de la API de NVD mejor en la variable LYBRA_NVD_API_KEY.
 
 [scan]
-# Cualquier campo de lybra.core.scanner.ScanSettings, por ejemplo:
+# Ajustes de ScanSettings (ver docs/configuracion.md para los 30 parámetros):
 # tcp_concurrency = 200
 # rate_limit_interval = 0.2
+# reachability_check = true                  # Validar alcanzabilidad previa en puerto 80
+# reachability_port = 80
+# http_timeout = 8.0
+# http_user_agent = "Lybra/1.0"
+# crawler_max_pages = 50                     # Páginas máximas por servicio web (0 desactiva crawler)
+# max_virtual_hosts = 10                     # Límite de virtual hosts por certificado TLS/PTR
+# credential_max_attempts = 3                # Intentos máximos por cuenta en modo agresivo
 
 [osint]
 # Inteligencia pasiva (osint.domain, osint.hostnames y el enriquecimiento de un

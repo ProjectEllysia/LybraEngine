@@ -198,3 +198,19 @@ def test_enrichment_is_opt_in_and_sends_the_address_it_is_about(server):
         {"target": "198.51.100.10", "enrich": True},
         {"services": [{"product": "nginx"}]},
         {"services": [{"port": 80}], "enrich": True, "target": "198.51.100.10"}]
+
+
+def test_kb_backfill_client(server):
+    def script(request):
+        return [
+            {"v": 1, "id": request["id"], "event": "progress", "data": {"phase": "backfill", "done": 1}},
+            {"v": 1, "id": request["id"], "ok": True, "result": {"cves": 10}}
+        ]
+    server.script = script
+    client = LybraClient(server.path)
+    seen = []
+    res = client.kb_backfill(since="2026-01-01", until="2026-01-02", on_progress=seen.append)
+    assert res == {"cves": 10}
+    assert server.requests[0]["op"] == "kb.backfill"
+    assert server.requests[0]["params"] == {"since": "2026-01-01", "until": "2026-01-02"}
+    assert seen == [{"phase": "backfill", "done": 1}]

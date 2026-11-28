@@ -10,6 +10,7 @@ Ejemplos::
     lybra analyze --product "Apache httpd" --version 2.4.49
     lybra kb status
     lybra kb sync --source kev
+    lybra kb backfill --since 2020-01-01
     lybra kb cve CVE-2024-6387
     lybra osint domain example.com --dkim-selector selector1
     lybra osint hostnames 203.0.113.10
@@ -29,7 +30,7 @@ from rich.text import Text
 from lybra.app.ui.console import COLOR_MODES, make_consoles, symbols_for
 from lybra.app.ui import views
 from lybra.app.ui.findings import render_findings, render_result
-from lybra.app.ui.progress import PhaseView
+from lybra.app.ui.progress import BackfillView, PhaseView
 
 
 def _print_json(value) -> None:
@@ -52,9 +53,17 @@ def _scan(client: LybraClient, arguments, out, err) -> int:
     if arguments.json:
         final = client.scan_watch(scan_id, on_progress=lambda _progress: None)
     else:
-        with PhaseView(err, arguments.target, arguments.profile) as view:
-            final = client.scan_watch(scan_id, on_progress=view)
-            view.finish(final["status"])
+        cancelled = False
+        with PhaseView(err, arguments.target, arguments.profile, verbose=arguments.verbose) as view:
+            try:
+                final = client.scan_watch(scan_id, on_progress=view)
+                view.finish(final["status"])
+            except KeyboardInterrupt:
+                view.finish("cancelled")
+                cancelled = True
+        if cancelled:
+            _fail(err, "Operación cancelada por el usuario.")
+            return 130
     if final["status"] == "failed":
         _fail(err, f"El escaneo falló: {final.get('error', {}).get('message')}")
         return 1
@@ -122,7 +131,7 @@ def _passive(client: LybraClient, arguments, out, err) -> int:
     return 0
 
 
-def _kb(client: LybraClient, arguments, out) -> int:
+def _kb(client: LybraClient, arguments, out, err) -> int:
     """``lybra kb ...``: estado, sincronización y consultas de la base de conocimiento."""
     if arguments.kb_command == "status":
         _emit(client.call("kb.status"), arguments.json, out, views.render_kb_status)
@@ -130,11 +139,78 @@ def _kb(client: LybraClient, arguments, out) -> int:
         _emit(client.call("kb.sync", {"source": arguments.source}), arguments.json, out, views.render_sync)
     elif arguments.kb_command == "cve":
         _emit(client.call("kb.cve", {"cveId": arguments.cve_id}), arguments.json, out, views.render_cve)
+    elif arguments.kb_command == "backfill":
+        return _kb_backfill(client, arguments, out, err)
     else:
         _emit(client.call("kb.version", {"product": arguments.product, "version": arguments.version}),
               arguments.json, out, lambda console, value: views.render_version(console, value, arguments.product,
                                                                                 arguments.version))
     return 0
+
+
+def _kb_backfill(client: LybraClient, arguments, out, err) -> int:
+    """``lybra kb backfill``: primer llenado histórico de CVE desde NVD."""
+    from datetime import datetime
+    import os
+    try:
+        start_dt = datetime.strptime(arguments.since, "%Y-%m-%d")
+    except ValueError:
+        _fail(err, f"Fecha 'since' inválida (debe ser YYYY-MM-DD): {arguments.since}")
+        return 2
+
+    end_dt = None
+    if arguments.until:
+        try:
+            end_dt = datetime.strptime(arguments.until, "%Y-%m-%d")
+        except ValueError:
+            _fail(err, f"Fecha 'until' inválida (debe ser YYYY-MM-DD): {arguments.until}")
+            return 2
+        if start_dt >= end_dt:
+            _fail(err, f"La fecha 'since' ({arguments.since}) no puede ser posterior o igual a 'until' ({arguments.until})")
+            return 2
+
+    def run_backfill(on_progress):
+        if arguments.kb:
+            from lybra.kb.store import KnowledgeBase
+            from lybra.kb.sync import KnowledgeBaseSync, SyncSettings
+            base = KnowledgeBase(arguments.kb)
+            try:
+                sync = KnowledgeBaseSync(base, SyncSettings(nvd_api_key=os.environ.get("LYBRA_NVD_API_KEY") or None))
+                return sync.backfill_nvd(start_dt, end_dt, on_progress=on_progress)
+            finally:
+                base.close()
+        else:
+            params = {"since": arguments.since}
+            if arguments.until:
+                params["until"] = arguments.until
+            return client.call(
+                "kb.backfill",
+                params,
+                on_event=(lambda ev, data: on_progress(data) if ev == "progress" else None) if on_progress else None,
+                timeout=None
+            )
+
+    try:
+        if arguments.json:
+            summary = run_backfill(None)
+            _print_json(summary)
+        else:
+            with BackfillView(err, arguments.since, arguments.until) as view:
+                try:
+                    summary = run_backfill(view)
+                except KeyboardInterrupt:
+                    view.finish(False)
+                    return 130
+                view.finish(True)
+            views.render_backfill(out, summary)
+    except Exception as error:
+        if arguments.kb:
+            _fail(err, f"Falló el backfill de NVD: {error}")
+            return 1
+        raise
+
+    return 0
+
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -170,6 +246,8 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--enrich", action="store_true",
                       help="preguntar a Shodan y Censys por la IP del objetivo (se lo revela a un tercero)")
     scan.add_argument("--no-wait", action="store_true", help="encolar y devolver el identificador")
+    scan.add_argument("-v", "--verbose", action="store_true",
+                      help="mostrar cada check y subfase conforme se ejecutan")
 
     for name, text in (("status", "estado de un escaneo"), ("result", "resultado de un escaneo"),
                        ("cancel", "cancelar un escaneo")):
@@ -205,6 +283,10 @@ def build_parser() -> argparse.ArgumentParser:
     kb_commands.add_parser("status", parents=[common], help="estado de cada fuente")
     sync = kb_commands.add_parser("sync", parents=[common], help="sincronizar en segundo plano")
     sync.add_argument("--source", default="all", choices=("all", "nvd", "kev", "epss", "oval"))
+    backfill = kb_commands.add_parser("backfill", parents=[common], help="primer llenado histórico de CVE desde NVD")
+    backfill.add_argument("--since", default="1999-01-01", help="fecha inicial YYYY-MM-DD (por defecto 1999-01-01)")
+    backfill.add_argument("--until", default=None, help="fecha final YYYY-MM-DD (por defecto hoy)")
+    backfill.add_argument("--kb", default=None, help="poblar directamente este fichero SQLite sin pasar por lybrad")
     cve = kb_commands.add_parser("cve", parents=[common], help="ficha de una CVE")
     cve.add_argument("cve_id")
     version = kb_commands.add_parser("version", parents=[common], help="CVE de un producto en una versión")
@@ -243,7 +325,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         elif arguments.command in ("osint", "cloud"):
             return _passive(client, arguments, out, err)
         else:
-            return _kb(client, arguments, out)
+            return _kb(client, arguments, out, err)
+    except KeyboardInterrupt:
+        _fail(err, "Operación cancelada por el usuario.")
+        return 130
     except LybraError as error:
         _fail(err, f"Error del motor ({error.code}): {error.message}")
         return 1

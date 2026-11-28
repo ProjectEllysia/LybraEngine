@@ -131,6 +131,57 @@ def test_phase_view_prints_plain_lines_without_carriage_returns():
     assert "✓ descubrimiento" in text and "✓ huella" in text and "! fases-raras" in text
 
 
+def test_phase_view_shows_detail_in_live_render_and_only_lists_events_when_verbose():
+    quiet_console = Console(file=io.StringIO(), theme=THEME, force_terminal=False, highlight=False)
+    with PhaseView(quiet_console, "10.0.0.1", "standard") as view:
+        view({
+            "status": "running", "phase": "checks", "done": 1, "total": 3,
+            "detail": "443/tcp · hsts-missing",
+            "events": [{"phase": "checks", "message": "rastreo web"},
+                       {"phase": "checks", "message": "443/tcp · hsts-missing"}],
+        })
+        render_console = Console(file=io.StringIO(), theme=THEME, force_terminal=False, width=120, highlight=False)
+        render_console.print(view)
+        live_text = render_console.file.getvalue()
+        view.finish("completed")
+    assert "443/tcp · hsts-missing" in live_text
+    assert "443/tcp · hsts-missing" not in quiet_console.file.getvalue()
+
+    verbose_console = Console(file=io.StringIO(), theme=THEME, force_terminal=False, highlight=False)
+    with PhaseView(verbose_console, "10.0.0.1", "standard", verbose=True) as view:
+        view({
+            "status": "running", "phase": "checks", "done": 1, "total": 3,
+            "detail": "443/tcp · hsts-missing",
+            "events": [{"phase": "checks", "message": "rastreo web"},
+                       {"phase": "checks", "message": "443/tcp · hsts-missing"}],
+        })
+        view({"status": "running", "phase": "checks", "done": 2, "total": 3, "detail": "superficie API"})
+        view.finish("completed")
+    verbose_text = verbose_console.file.getvalue()
+    assert "  · rastreo web" in verbose_text
+    assert "  · 443/tcp · hsts-missing" in verbose_text
+    assert "  · superficie API" in verbose_text
+
+
+def test_scan_verbose_flag_parses_and_prints_check_events(monkeypatch, fake_client, capsys):
+    assert cli.build_parser().parse_args(["scan", "10.0.0.1"]).verbose is False
+    assert cli.build_parser().parse_args(["scan", "10.0.0.1", "-v"]).verbose is True
+    assert cli.build_parser().parse_args(["scan", "10.0.0.1", "--verbose"]).verbose is True
+
+    monkeypatch.setattr(
+        LybraClient, "scan_watch",
+        lambda self, scan_id, on_progress=None: (
+            on_progress({"status": "running", "phase": "checks", "done": 1, "total": 2,
+                         "detail": "80/tcp · hsts-missing",
+                         "events": [{"phase": "checks", "message": "80/tcp · hsts-missing"}]}),
+            {"status": "completed"},
+        )[1],
+    )
+    assert cli.main(["scan", "10.0.0.1", "--verbose"]) == 0
+    captured = capsys.readouterr()
+    assert "80/tcp · hsts-missing" in captured.err
+
+
 # --- la línea de órdenes, sin sockets
 
 _RESULT = {"scanId": "s1", "target": "10.0.0.1", "status": "completed", "services": [],

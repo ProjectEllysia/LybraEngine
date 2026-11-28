@@ -493,6 +493,27 @@ class LybraClient:
         """
         return self.call("kb.sync", {"source": source})
 
+    def kb_backfill(self, since: Optional[str] = None, until: Optional[str] = None,
+                    on_progress: Optional[Callable[[Dict[str, Any]], None]] = None) -> Dict[str, Any]:
+        """
+        Realiza un llenado histórico completo de NVD (``kb.backfill``).
+
+        Args:
+            since: Desde cuándo (YYYY-MM-DD).
+            until: Hasta cuándo (YYYY-MM-DD).
+            on_progress: Recibe cada evento de progreso.
+
+        Returns:
+            dict: Resumen del backfill.
+        """
+        params: Dict[str, Any] = {}
+        if since is not None:
+            params["since"] = since
+        if until is not None:
+            params["until"] = until
+        handler = (lambda event, data: on_progress(data) if event == "progress" else None) if on_progress else None
+        return self.call("kb.backfill", params, on_event=handler, timeout=None)
+
 
 def _read_reply(reader, request_id: str, on_event: Optional[Callable[[str, Any], None]]) -> Any:
     """

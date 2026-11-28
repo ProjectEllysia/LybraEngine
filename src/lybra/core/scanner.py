@@ -284,8 +284,18 @@ class _NoProgress:
     def advance(self, phase: str, done: int, total: int) -> None:
         """Ignora el avance de una fase."""
 
+    def note(self, phase: str, message: str) -> None:
+        """Ignora un detalle de una fase."""
+
     def complete(self, phase: str) -> None:
         """Ignora el final de una fase."""
+
+
+def _note(progress, phase: str, message: str) -> None:
+    """Avisa de un detalle o subpaso de ``phase`` si el receptor admite ``note``."""
+    note = getattr(progress, "note", None)
+    if note is not None:
+        note(phase, message)
 
 
 class ScanPhases:  # pylint: disable=too-many-public-methods
@@ -666,7 +676,7 @@ class ScanPhases:  # pylint: disable=too-many-public-methods
     def run_active_checks(  # pylint: disable=too-many-arguments,too-many-positional-arguments
             self, target: str, services, cancel_check=None, proposed_cves=None,
             mode: str = "safe", discovered_directories=None, discovered_paths=None,
-            on_progress=None) -> list:
+            on_progress=None, on_check=None) -> list:
         """
         Ejecuta los checks activos contra los servicios del objetivo.
 
@@ -709,6 +719,7 @@ class ScanPhases:  # pylint: disable=too-many-public-methods
                 capture_evidence=settings.capture_evidence,
                 max_payload_expansions=settings.max_payload_expansions,
                 mapper=partial(self.in_host_pool, on_progress=on_progress),
+                on_check=on_check,
             )
             return runtime.run(target, services, cancel_check=cancel_check,
                                proposed_cves=proposed_cves,
@@ -957,9 +968,14 @@ def run_scan(request: ScanRequest, phases: Optional[ScanPhases] = None, *,  # py
         discovered_auth_paths: list = []
         discovered_directories: dict = {}
         discovered_login_paths: dict = {}
+        def report_check(check, service, host_label: Optional[str] = None) -> None:
+            location = f"{host_label}:{service.port}" if host_label else f"{service.port}/{service.protocol}"
+            _note(progress, "checks", f"{location} · {check.id}")
+
         # El rastreo va antes de los checks activos para que las rutas con
         # puerta lleguen al motor de credenciales.
         if may_probe and request.crawl and not should_stop():
+            _note(progress, "checks", "rastreo web")
             crawl_result, discovered_auth_paths, discovered_directories, discovered_login_paths = (
                 phases.run_crawler(target, services, cancel_check=should_stop))
             findings.extend(crawl_result)
@@ -970,8 +986,10 @@ def run_scan(request: ScanRequest, phases: Optional[ScanPhases] = None, *,  # py
             active_findings, refutations = split_refutations(phases.run_active_checks(
                 target, services, cancel_check=should_stop, proposed_cves=proposed_cves, mode=mode,
                 discovered_directories=discovered_directories, discovered_paths=discovered_login_paths,
-                on_progress=lambda done, total: progress.advance("checks", total + done, 3 * total)))
+                on_progress=lambda done, total: progress.advance("checks", total + done, 3 * total),
+                on_check=report_check))
             if not should_stop():
+                _note(progress, "checks", "superficie API")
                 active_findings += phases.run_api_surface(
                     target, services, mode=mode, cancel_check=should_stop)
             # Escanear una IP audita su sitio por defecto. Los sitios con nombre
@@ -982,7 +1000,8 @@ def run_scan(request: ScanRequest, phases: Optional[ScanPhases] = None, *,  # py
                 site_findings, site_refutations = split_refutations(phases.audit_named_sites(
                     target, services, should_stop,
                     lambda name, web: phases.run_active_checks(
-                        name, web, cancel_check=should_stop, proposed_cves=proposed_cves, mode=mode),
+                        name, web, cancel_check=should_stop, proposed_cves=proposed_cves, mode=mode,
+                        on_check=lambda check, service, _name=name: report_check(check, service, _name)),
                     extra_candidates=request.site_candidates))
                 if has_own_named_sites(site_findings):
                     mark_default_site_findings(active_findings)
@@ -993,6 +1012,7 @@ def run_scan(request: ScanRequest, phases: Optional[ScanPhases] = None, *,  # py
         progress.advance("checks", 2, 3)
 
         if may_probe and mode == "aggressive" and not should_stop():
+            _note(progress, "checks", "credenciales")
             findings.extend(phases.run_credential_checks(
                 target, services, mode, discovered_auth_paths, cancel_check=should_stop))
 

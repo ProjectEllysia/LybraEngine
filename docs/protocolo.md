@@ -56,7 +56,7 @@ sigue abierta.
 
 ### Eventos
 
-`scan.watch` emite, antes de su respuesta final, eventos con el mismo `id`:
+`scan.watch` o `kb.backfill` emiten, antes de su respuesta final, eventos con el mismo `id`:
 
 ```json
 {"v": 1, "id": "c-18", "event": "progress", "data": {"status": "running", "phase": "fingerprint", "done": 3, "total": 8}}
@@ -185,6 +185,7 @@ se dan por `*`. Devuelve `{"findings": [Finding, …], "kbFeedVersion": "…"}`.
 | `kb.unresolved` | `origin` (`network` \| `inventory`, opcional), `limit` (por defecto 50) | `{"products": [{name, origin, occurrences, firstSeenAt, lastSeenAt}]}`: los nombres que más veces quedaron sin resolver. |
 | `kb.status` | — | `{"sources": [...], "isStale", "isUnverified", "feedVersion"}`, una entrada por fuente con `lastAttemptAt`, `lastSuccessAt`, `rowsUpserted`, `error`, `neverSynced`, `hasContent`, `ageDays`, `maxAgeDays`, `isStale`, `isUnverified`, `newestContentAt`. |
 | `kb.sync` | `source` (`all`, `nvd`, `kev`, `epss`, `oval`; por defecto `all`) | Lanza la sincronización en segundo plano y responde `{"started": true, "source"}` al momento; `busy` si ya hay una en curso. |
+| `kb.backfill` | `since` (`YYYY-MM-DD`, opcional, por defecto `"1999-01-01"`), `until` (`YYYY-MM-DD`, opcional, por defecto ahora) | Ejecuta el llenado histórico de NVD en ventanas de 14 días (emite eventos `progress` con `phase`, `done`, `total`, `cves`, `windowStart`, `windowEnd`, `hasApiKey`), reconstruye el índice de productos CPE y devuelve `{"cves", "cpeProductAliases", "since", "until", "usedApiKey"}`; devuelve `busy` si ya hay una sincronización en curso. |
 
 Ninguna consulta de la base busca por subcadena ni devuelve listas sin tope.
 

@@ -133,6 +133,8 @@ class _Job:  # pylint: disable=too-many-instance-attributes
         self.phase: Optional[str] = None
         self.done = 0
         self.total = 0
+        self.detail: Optional[str] = None
+        self._events: List[dict] = []
         self.started_at: Optional[datetime] = None
         self.finished_at: Optional[datetime] = None
         self.finished_monotonic: Optional[float] = None
@@ -155,18 +157,43 @@ class _Job:  # pylint: disable=too-many-instance-attributes
             self.revision += 1
             self.changed.notify_all()
 
-    def advance(self, phase: str, done: int, total: int) -> None:
+    def advance(self, phase: str, done: int, total: int, detail: Optional[str] = None) -> None:
         """Recibe el avance de una fase (la interfaz de progreso de ``run_scan``)."""
-        self.update(phase=phase, done=done, total=total)
+        with self.changed:
+            if phase != self.phase:
+                self.detail = detail
+            elif detail is not None:
+                self.detail = detail
+            self.phase = phase
+            self.done = done
+            self.total = total
+            self.revision += 1
+            self.changed.notify_all()
+
+    def note(self, phase: str, message: str) -> None:
+        """Anota un detalle en vivo de la fase (p. ej. el check en curso)."""
+        with self.changed:
+            self.phase = phase
+            self.detail = message
+            self._events.append({"phase": phase, "message": message})
+            self.revision += 1
+            self.changed.notify_all()
+
+    def events_since(self, index: int) -> List[dict]:
+        """Devuelve los eventos de detalle anotados desde ``index``."""
+        return list(self._events[index:])
 
     def complete(self, phase: str) -> None:
         """Recibe el final de una fase (la interfaz de progreso de ``run_scan``)."""
-        self.update(phase=phase, done=self.total, total=self.total)
+        self.update(phase=phase, done=self.total, total=self.total, detail=None)
 
     def status_view(self) -> dict:
         """El estado del escaneo en su forma de cable."""
+        progress: dict = {"phase": self.phase, "done": self.done, "total": self.total}
+        if self.detail:
+            progress["detail"] = self.detail
         view = {"scanId": self.scan_id, "target": self.target, "status": self.status,
-                "progress": {"phase": self.phase, "done": self.done, "total": self.total}}
+                "progress": progress}
         if self.error:
             view["error"] = self.error
         return view
@@ -229,6 +256,7 @@ class EngineService:
             "kb.unresolved": self._kb_unresolved,
             "kb.status": self._kb_status,
             "kb.sync": self._kb_sync,
+            "kb.backfill": self._kb_backfill,
         }
 
     # ------------------------------------------------------------ entrada
@@ -439,14 +467,20 @@ class EngineService:
         """``scan.watch``: emite el avance hasta que el escaneo termina y responde con su estado final."""
         job = self._job(params)
         seen = -1
+        seen_events = 0
         while True:
             with job.changed:
                 if job.revision == seen and not job.is_terminal:
                     job.changed.wait(timeout=30)
                 seen, view, terminal = job.revision, job.status_view(), job.is_terminal
+                new_events = job.events_since(seen_events)
+                seen_events += len(new_events)
+            if new_events:
+                emit("progress", view["progress"] | {"status": view["status"], "events": new_events})
+            elif not terminal:
+                emit("progress", view["progress"] | {"status": view["status"]})
             if terminal:
                 return view
-            emit("progress", view["progress"] | {"status": view["status"]})
 
     def _scan_result(self, params: dict, _emit) -> dict:
         """``scan.result``: el resultado de un escaneo terminado."""
@@ -687,6 +721,40 @@ class EngineService:
         if not self.start_sync(source):
             raise ProtocolError(protocol.BUSY, "ya hay una sincronización en curso")
         return {"started": True, "source": source}
+
+    def _kb_backfill(self, params: dict, emit) -> dict:
+        """``kb.backfill``: realiza un llenado histórico de NVD emitiendo progreso."""
+        since_raw = params.get("since", "1999-01-01")
+        until_raw = params.get("until")
+        if not isinstance(since_raw, str):
+            raise ProtocolError(protocol.INVALID_PARAMS, "fecha inválida; usa YYYY-MM-DD")
+        try:
+            start = datetime.strptime(since_raw, "%Y-%m-%d")
+        except ValueError as error:
+            raise ProtocolError(protocol.INVALID_PARAMS, "fecha inválida; usa YYYY-MM-DD") from error
+        
+        end = None
+        if until_raw is not None:
+            if not isinstance(until_raw, str):
+                raise ProtocolError(protocol.INVALID_PARAMS, "fecha inválida; usa YYYY-MM-DD")
+            try:
+                end = datetime.strptime(until_raw, "%Y-%m-%d")
+            except ValueError as error:
+                raise ProtocolError(protocol.INVALID_PARAMS, "fecha inválida; usa YYYY-MM-DD") from error
+
+        if end is not None and start >= end:
+            raise ProtocolError(protocol.INVALID_PARAMS, "'since' tiene que ser anterior a 'until'")
+
+        if not self._sync_lock.acquire(blocking=False):  # pylint: disable=consider-using-with
+            raise ProtocolError(protocol.BUSY, "ya hay una sincronización en curso")
+        try:
+            return KnowledgeBaseSync(self.kb, self.settings.sync).backfill_nvd(
+                start, end, on_progress=lambda data: emit("progress", data)
+            )
+        except ValueError as error:
+            raise ProtocolError(protocol.INVALID_PARAMS, str(error)) from error
+        finally:
+            self._sync_lock.release()
 
     def start_sync(self, source: str = "all") -> bool:
         """
