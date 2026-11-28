@@ -7,7 +7,7 @@ estándar.
 ## Instalación
 
 ```bash
-pip install "lybra-client @ git+https://github.com/ProjectEllysia/LybraEngine@client-v0.2.0#subdirectory=client"
+pip install "lybra-client @ git+https://github.com/ProjectEllysia/LybraEngine@client-v0.2.1#subdirectory=client"
 ```
 
 Hace falta pertenecer al grupo del socket (`lybra`) o, en contenedores, montar
