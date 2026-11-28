@@ -25,6 +25,10 @@ result = client.scan("198.51.100.10", profile="fast", on_progress=print)
 for finding in result["findings"]:
     print(finding["title"], finding.get("cveIds"))
 
+# Llenado histórico de la base de conocimiento (backfill de NVD con progreso)
+backfill_res = client.kb_backfill(since="2020-01-01", on_progress=print)
+print("CVEs importadas:", backfill_res["cves"])
+
 # Software instalado, sin tocar la red: un CPE (o un nombre) y su versión.
 analysis = client.analyze([
     {"cpe": "cpe:2.3:a:openssl:openssl", "version": "3.0.1", "origin": "inventory"},
