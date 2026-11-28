@@ -48,7 +48,7 @@ from ..net.transport import DEFAULT_PORTS
 
 logger = logging.getLogger(__name__)
 
-ENGINE_VERSION = "0.2.0"
+ENGINE_VERSION = "0.2.1"
 
 #: Los puertos del perfil ``fast``: los más comunes, para un escaneo rápido.
 FAST_PORTS = (
