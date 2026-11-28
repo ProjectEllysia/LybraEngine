@@ -1,0 +1,196 @@
+.TH LYBRA 1 "2026-11-28" "LybraEngine 0.2.0" "Manual de usuario"
+.SH NOMBRE
+lybra \- cliente de línea de órdenes para el motor de escaneo LybraEngine
+.SH SINOPSIS
+.B lybra
+[\fB\-\-socket\fR \fIRUTA\fR]
+[\fB\-\-json\fR]
+[\fB\-\-color\fR {\fBauto\fR,\fBalways\fR,\fBnever\fR}]
+.I orden
+[\fIargumentos\fR...]
+.SH DESCRIPCIÓN
+.B lybra
+es el cliente CLI oficial para interactuar con el demonio
+.BR lybrad (8)
+a través de un socket Unix. Permite lanzar auditorías de red, consultar el
+estado y resultados de escaneos, realizar análisis estáticos de software sin
+tocar la red, ejecutar reconocimiento pasivo OSINT/Cloud y gestionar la base
+de conocimiento de vulnerabilidades (NVD, CISA KEV, EPSS y avisos OVAL/CSAF).
+.SH OPCIONES GLOBALES
+Las opciones \fB\-\-json\fR y \fB\-\-color\fR también pueden indicarse después de
+la suborden.
+.TP
+.BR \-h ", " \-\-help
+Muestra la ayuda resumida y sale.
+.TP
+.BI \-\-socket " RUTA"
+Ruta del socket Unix de
+.BR lybrad (8).
+Por defecto usa la variable de entorno
+.B LYBRA_SOCKET
+o
+.IR /run/lybra/lybra.sock .
+.TP
+.B \-\-json
+Emite la salida en formato JSON estructurado.
+.TP
+.BI \-\-color " MODO"
+Controla el coloreado de la salida:
+.BR auto " (por defecto, respeta " NO_COLOR " y " FORCE_COLOR ),
+.B always
+o
+.BR never .
+.SH ÓRDENES
+.TP
+.B info
+Muestra la versión del motor y el estado de su base de conocimiento.
+.TP
+.BI scan " OBJETIVO " \fR[\fIopciones\fR]
+Escanea una IP o nombre de host.
+.RS
+.TP
+.BI \-\-profile " PERFIL"
+Perfil de escaneo:
+.B fast
+(100 puertos TCP comunes, 7 UDP, sin crawler ni checks activos),
+.B standard
+(por defecto; 74 puertos TCP curados, 7 UDP y todas las fases activas) o
+.B thorough
+(65.535 puertos TCP y 7 UDP, sin reutilizar caché).
+.TP
+.BI \-\-ports " PUERTOS"
+Lista de puertos TCP separados por comas; sustituye al perfil.
+.TP
+.BI \-\-timeout " SEGUNDOS"
+Presupuesto máximo de reloj para el escaneo, en segundos.
+.TP
+.B \-\-aggressive
+Habilita comprobaciones avanzadas que escriben o interactúan con sesiones y
+credenciales por defecto (p. ej. RPC, Mass Assignment o fuerza bruta HTTP Basic
+atenuada). Se ignora en el perfil \fBfast\fR.
+.TP
+.B \-\-no\-active\-checks
+Desactiva la ejecución de checks activos de vulnerabilidades.
+.TP
+.B \-\-enrich
+Consulta a Shodan y Censys por la IP del objetivo (revela el objetivo a
+terceros).
+.TP
+.B \-\-no\-wait
+Encola el escaneo y devuelve su identificador sin esperar a que termine.
+.RE
+.TP
+.BI status " SCAN_ID"
+Consulta el estado actual de un escaneo en curso o finalizado.
+.TP
+.BI result " SCAN_ID"
+Muestra el resultado completo de un escaneo finalizado.
+.TP
+.BI cancel " SCAN_ID"
+Cancela un escaneo en curso o encolado.
+.TP
+.BI analyze " \fR[\fB\-\-cpe\fR \fICPE\fR | \fB\-\-product\fR \fIPRODUCTO\fR] " \-\-version " VERSIÓN"
+Busca vulnerabilidades CVE de un producto o CPE en una versión concreta sin
+realizar tráfico de red hacia el objetivo.
+.RS
+.TP
+.BI \-\-cpe " CPE"
+Identificador CPE 2.3 del producto (p. ej. \fIcpe:2.3:a:openssl:openssl\fR).
+.TP
+.BI \-\-product " PRODUCTO"
+Nombre del producto si no se indica \fB\-\-cpe\fR.
+.TP
+.BI \-\-version " VERSIÓN"
+Versión a evaluar (obligatoria).
+.TP
+.B \-\-enrich
+Consulta también Shodan y Censys usando \fB\-\-target\fR.
+.TP
+.BI \-\-target " IP"
+Dirección IP asociada al servicio cuando se usa \fB\-\-enrich\fR.
+.RE
+.TP
+.B osint domain \fIDOMINIO\fR \fR[\fB\-\-source\fR \fIFUENTE\fR] [\fB\-\-dkim\-selector\fR \fISELECTOR\fR] [\fB\-\-timeout\fR \fISEG\fR]
+Obtiene subdominios, servicios expuestos e higiene DNS (SPF, DMARC, DKIM) de
+un dominio. \fB\-\-source\fR admite \fBcrtsh\fR, \fBshodan\fR, \fBcensys\fR o
+\fBsecuritytrails\fR (repetible), al igual que \fB\-\-dkim\-selector\fR.
+.TP
+.B osint hostnames \fIDIRECCIÓN\fR \fR[\fB\-\-timeout\fR \fISEG\fR]
+Consulta los nombres de host que Shodan y Censys asocian a una IP.
+.TP
+.B cloud probe \fR[\fB\-\-resource\fR \fIPROV:ID\fR] [\fB\-\-subdomain\fR \fISUBDOMINIO\fR] [\fB\-\-timeout\fR \fISEG\fR]
+Comprueba exposición en recursos cloud (p. ej. \fIs3:mi\-bucket\fR) y posibles
+tomas de control (\fItakeover\fR) de subdominios. Ambas opciones son repetibles.
+.TP
+.B kb status
+Muestra el estado y fechas de sincronización de cada fuente en la base de
+conocimiento.
+.TP
+.B kb sync \fR[\fB\-\-source\fR {\fBall\fR,\fBnvd\fR,\fBkev\fR,\fBepss\fR,\fBoval\fR}]
+Lanza una sincronización en segundo plano en el demonio.
+.TP
+.B kb backfill \fR[\fB\-\-since\fR \fIFECHA\fR] [\fB\-\-until\fR \fIFECHA\fR] [\fB\-\-kb\fR \fIFICHERO\fR]
+Realiza el llenado histórico de CVEs desde NVD (formato \fIYYYY\-MM\-DD\fR;
+\fB\-\-since\fR por defecto \fI1999\-01\-01\fR). Si se indica \fB\-\-kb\fR,
+puebla directamente ese fichero SQLite sin pasar por
+.BR lybrad (8).
+.TP
+.B kb cve \fICVE_ID\fR
+Muestra la ficha detallada de una CVE.
+.TP
+.B kb version \fIPRODUCTO VERSIÓN\fR
+Lista las CVE asociadas a un producto y versión concretos.
+.SH ENTORNO
+.TP
+.B LYBRA_SOCKET
+Ruta por defecto del socket Unix de
+.BR lybrad (8)
+cuando no se pasa \fB\-\-socket\fR.
+.TP
+.B LYBRA_NVD_API_KEY
+Clave de API de NVD utilizada por \fBkb backfill \-\-kb\fR en modo directo.
+.TP
+.BR NO_COLOR ", " FORCE_COLOR
+Controlan el color de la salida cuando \fB\-\-color\fR vale \fBauto\fR.
+.SH ESTADOS DE SALIDA
+.TP
+.B 0
+Ejecución correcta.
+.TP
+.B 1
+El motor devolvió un error o el escaneo falló.
+.TP
+.B 2
+Uso incorrecto o argumentos inválidos.
+.TP
+.B 3
+No se pudo establecer comunicación con el socket de
+.BR lybrad (8).
+.SH EJEMPLOS
+Consultar el estado del motor:
+.PP
+.nf
+.RS
+lybra info
+.RE
+.fi
+.PP
+Lanzar un escaneo estándar asíncrono y recoger el resultado en JSON:
+.PP
+.nf
+.RS
+lybra scan 192.168.1.50 \-\-profile standard \-\-no\-wait
+lybra status <scanId>
+lybra result <scanId> \-\-json
+.RE
+.fi
+.PP
+Auditar una versión de software sin tocar la red:
+.PP
+.nf
+.RS
+lybra analyze \-\-cpe cpe:2.3:a:openssl:openssl \-\-version 3.0.1
+.RE
+.fi
+.SH VÉASE TAMBIÉN
+.BR lybrad (8)

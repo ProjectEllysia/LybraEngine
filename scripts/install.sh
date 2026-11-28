@@ -100,6 +100,26 @@ run() {
     fi
 }
 
+install_man_page() {
+    local section="$1"
+    local filename="$2"
+    local man_root="$3"
+    local src="$REPO_ROOT/packaging/man/$filename"
+    local dst_dir="$man_root/man$section"
+    if [[ -f "$src" ]]; then
+        run mkdir -p "$dst_dir"
+        run cp "$src" "$dst_dir/$filename"
+        run chmod 0644 "$dst_dir/$filename"
+    fi
+}
+
+uninstall_man_page() {
+    local section="$1"
+    local filename="$2"
+    local man_root="$3"
+    run rm -f "$man_root/man$section/$filename" "$man_root/man$section/$filename.gz"
+}
+
 if [[ "$PURGE" -eq 1 && "$UNINSTALL" -eq 0 ]]; then
     echo "Error: --purge sólo puede usarse junto con --uninstall." >&2
     exit 2
@@ -135,6 +155,9 @@ if [[ "$UNINSTALL" -eq 1 ]]; then
         if [[ "$LINK_BIN" -eq 1 || -L "${XDG_BIN_HOME:-$HOME/.local/bin}/lybra" ]]; then
             BIN_DIR="${XDG_BIN_HOME:-$HOME/.local/bin}"
             run rm -f "$BIN_DIR/lybra" "$BIN_DIR/lybrad"
+            MAN_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/man"
+            uninstall_man_page 1 "lybra.1" "$MAN_DIR"
+            uninstall_man_page 8 "lybrad.8" "$MAN_DIR"
         fi
         echo "Desinstalación venv completada."
     elif [[ "$MODE" == "systemd" ]]; then
@@ -143,6 +166,8 @@ if [[ "$UNINSTALL" -eq 1 ]]; then
         run rm -f /etc/systemd/system/lybrad.service
         run systemctl daemon-reload
         run rm -f /usr/bin/lybrad /usr/local/bin/lybra
+        uninstall_man_page 1 "lybra.1" "/usr/local/share/man"
+        uninstall_man_page 8 "lybrad.8" "/usr/local/share/man"
         run rm -rf /opt/lybra
         if [[ "$PURGE" -eq 1 ]]; then
             run rm -rf /var/lib/lybra /etc/lybra
@@ -159,11 +184,14 @@ if [[ "$UNINSTALL" -eq 1 ]]; then
         BIN_DIR="${XDG_BIN_HOME:-$HOME/.local/bin}"
         if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
             WRAPPER_CANDIDATE="/usr/local/bin/lybra"
+            MAN_DIR="/usr/local/share/man"
         else
             WRAPPER_CANDIDATE="$BIN_DIR/lybra"
+            MAN_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/man"
         fi
         if [[ "$DRY_RUN" -eq 1 ]] || grep -q "lybra-docker-wrapper" "$WRAPPER_CANDIDATE" 2>/dev/null; then
             run rm -f "$WRAPPER_CANDIDATE"
+            uninstall_man_page 1 "lybra.1" "$MAN_DIR"
         fi
         echo "Desinstalación docker completada."
     fi
@@ -181,6 +209,9 @@ if [[ "$MODE" == "venv" ]]; then
         run mkdir -p "$BIN_DIR"
         run ln -sf "$VENV_DIR/bin/lybra" "$BIN_DIR/lybra"
         run ln -sf "$VENV_DIR/bin/lybrad" "$BIN_DIR/lybrad"
+        MAN_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/man"
+        install_man_page 1 "lybra.1" "$MAN_DIR"
+        install_man_page 8 "lybrad.8" "$MAN_DIR"
     fi
     echo "Instalación venv completada en $VENV_DIR"
 
@@ -193,6 +224,11 @@ elif [[ "$MODE" == "systemd" ]]; then
 
     run ln -sf /opt/lybra/venv/bin/lybrad /usr/bin/lybrad
     run ln -sf /opt/lybra/venv/bin/lybra /usr/local/bin/lybra
+    install_man_page 1 "lybra.1" "/usr/local/share/man"
+    install_man_page 8 "lybrad.8" "/usr/local/share/man"
+    if command -v mandb >/dev/null 2>&1; then
+        run mandb -q || true
+    fi
 
     run mkdir -p /etc/systemd/system
     if [[ "$DRY_RUN" -eq 1 ]]; then
@@ -274,10 +310,12 @@ elif [[ "$MODE" == "docker" ]]; then
     if [[ "$LINK_BIN" -eq 1 ]]; then
         if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
             WRAPPER_PATH="/usr/local/bin/lybra"
+            MAN_DIR="/usr/local/share/man"
         else
             BIN_DIR="${XDG_BIN_HOME:-$HOME/.local/bin}"
             run mkdir -p "$BIN_DIR"
             WRAPPER_PATH="$BIN_DIR/lybra"
+            MAN_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/man"
         fi
 
         if [[ "$DRY_RUN" -eq 1 ]]; then
@@ -294,6 +332,7 @@ fi
 EOF_WRAPPER
             chmod +x "$WRAPPER_PATH"
         fi
+        install_man_page 1 "lybra.1" "$MAN_DIR"
     fi
     echo "Instalación docker completada."
 fi
