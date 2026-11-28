@@ -168,6 +168,36 @@ def render_sync(console: Console, response: dict) -> None:
         _line(console, f"{sym.err} No se inició la sincronización (fuente: {source})", "err")
 
 
+def render_backfill(console: Console, result: dict) -> None:
+    """
+    Escribe el resumen del backfill histórico de NVD completado.
+
+    Args:
+        console: La consola de stdout.
+        result: La respuesta de ``kb.backfill``.
+    """
+    sym = symbols_for(console)
+    heading(console, f"{sym.brand} Backfill de NVD completado")
+    since = str(result.get("since", "?"))
+    until = str(result.get("until", "?"))
+    cves = str(result.get("cves", 0))
+    aliases = str(result.get("cpeProductAliases", 0))
+    used_api_key = result.get("usedApiKey", False)
+    
+    if used_api_key:
+        api_text = Text("sí", style="ok")
+    else:
+        api_text = Text("no (ritmo limitado)", style="muted")
+
+    key_values(console, [
+        ("periodo", f"{since} → {until}"),
+        ("CVE escritas", cves),
+        ("alias CPE", aliases),
+        ("clave API NVD", api_text),
+    ])
+
+
+
 def render_cve(console: Console, detail: dict) -> None:
     """
     Escribe la ficha de una CVE.

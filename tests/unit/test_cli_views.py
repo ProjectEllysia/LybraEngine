@@ -140,6 +140,58 @@ def test_hostnames_and_cloud():
     assert "Nada expuesto" in _plain(views.render_cloud, {"resources": ["s3:x"]})
 
 
+def test_render_backfill():
+    result = {"cves": 500, "cpeProductAliases": 50, "since": "2024-01-01", "until": "2024-01-07", "usedApiKey": True}
+    text = _plain(views.render_backfill, result)
+    assert "Backfill de NVD completado" in text and "2024-01-01 → 2024-01-07" in text and "500" in text
+    _check_clean(text, 80)
+    _check_clean(_plain(views.render_backfill, {**result, "usedApiKey": False}, width=45), 45)
+
+
+def test_backfill_view_non_tty():
+    console = Console(file=io.StringIO(), theme=THEME, force_terminal=False, width=80, highlight=False)
+    from lybra.app.ui.progress import BackfillView
+    with BackfillView(console, "2024-01-01") as view:
+        view({"phase": "backfill", "done": 10, "total": 100, "cves": 5, "hasApiKey": False})
+        view({"phase": "backfill", "done": 20, "total": 100, "cves": 12})
+        view.finish(True)
+    text = console.file.getvalue()
+    assert "\r" not in text
+    assert "\x1b" not in text
+    assert "Sin LYBRA_NVD_API_KEY" in text
+    assert "backfill completado" in text
+
+
+def test_kb_backfill_invalid_dates(capsys, fake_client):
+    fake_client("kb.backfill", {})
+    assert cli.main(["kb", "backfill", "--since", "bad-date"]) == 2
+    assert "Fecha 'since' inválida" in capsys.readouterr().err
+
+    assert cli.main(["kb", "backfill", "--since", "2024-01-01", "--until", "bad-date"]) == 2
+    assert "Fecha 'until' inválida" in capsys.readouterr().err
+
+    assert cli.main(["kb", "backfill", "--since", "2024-01-01", "--until", "2024-01-01"]) == 2
+    assert "no puede ser posterior o igual a 'until'" in capsys.readouterr().err
+
+    assert cli.main(["kb", "backfill", "--since", "2024-01-02", "--until", "2024-01-01"]) == 2
+    assert "no puede ser posterior o igual a 'until'" in capsys.readouterr().err
+
+
+def test_kb_backfill_direct_kb(monkeypatch, tmp_path, capsys):
+    from datetime import datetime
+    from lybra.kb.sync import KnowledgeBaseSync
+    def mock_backfill(self, start, end, on_progress=None):
+        assert isinstance(start, datetime)
+        assert isinstance(end, datetime)
+        return {"cves": 5, "cpeProductAliases": 1, "since": str(start), "until": str(end), "usedApiKey": True}
+    monkeypatch.setattr(KnowledgeBaseSync, "backfill_nvd", mock_backfill)
+    kb_path = tmp_path / "test.db"
+    assert cli.main(["kb", "backfill", "--since", "2024-01-01", "--until", "2024-01-07", "--kb", str(kb_path)]) == 0
+    assert "Backfill de NVD completado" in capsys.readouterr().out
+
+
+
+
 # --- la línea de órdenes, sin sockets
 
 _RESPONSES = {
@@ -148,12 +200,14 @@ _RESPONSES = {
     ("cancel", "s1"): ("scan_cancel", _CANCEL, "✓ Cancelación pedida"),
     ("kb", "status"): ("kb.status", _KB_STATUS, "VIEJA"),
     ("kb", "sync"): ("kb.sync", {"started": True, "source": "all"}, "✓ Sincronización iniciada"),
+    ("kb", "backfill", "--since", "2024-01-01"): ("kb.backfill", {"cves": 100, "cpeProductAliases": 10, "since": "2024-01-01", "until": "2026-01-01", "usedApiKey": True}, "Backfill de NVD completado"),
     ("kb", "cve", "CVE-2024-6387"): ("kb.cve", _CVE, "CVE-2024-6387  HIGH"),
     ("kb", "version", "nginx", "1.18.0"): ("kb.version", _VERSION, "CVE-2021-23017"),
     ("osint", "domain", "example.com"): ("osint_domain", _DOMAIN, "Subdominios (2)"),
     ("osint", "hostnames", "93.184.216.34"): ("osint_hostnames", _NAMES, "2 nombres"),
     ("cloud", "probe", "--resource", "s3:mi-bucket"): ("cloud_probe", _CLOUD, "Recursos expuestos (1)"),
 }
+
 
 
 @pytest.fixture
