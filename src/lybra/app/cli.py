@@ -54,7 +54,7 @@ def _scan(client: LybraClient, arguments, out, err) -> int:
         final = client.scan_watch(scan_id, on_progress=lambda _progress: None)
     else:
         cancelled = False
-        with PhaseView(err, arguments.target, arguments.profile) as view:
+        with PhaseView(err, arguments.target, arguments.profile, verbose=arguments.verbose) as view:
             try:
                 final = client.scan_watch(scan_id, on_progress=view)
                 view.finish(final["status"])
@@ -246,6 +246,8 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--enrich", action="store_true",
                       help="preguntar a Shodan y Censys por la IP del objetivo (se lo revela a un tercero)")
     scan.add_argument("--no-wait", action="store_true", help="encolar y devolver el identificador")
+    scan.add_argument("-v", "--verbose", action="store_true",
+                      help="mostrar cada check y subfase conforme se ejecutan")
 
     for name, text in (("status", "estado de un escaneo"), ("result", "resultado de un escaneo"),
                        ("cancel", "cancelar un escaneo")):

@@ -38,22 +38,25 @@ class PhaseView:
         console: La consola de stderr.
     """
 
-    def __init__(self, console: Console, target: str, profile: str) -> None:
+    def __init__(self, console: Console, target: str, profile: str, verbose: bool = False) -> None:
         """
         Args:
             console: La consola de stderr.
             target: El objetivo del escaneo.
             profile: El perfil (``fast``, ``standard``, ``thorough``).
+            verbose: Si se escribe una línea por cada check o subfase ejecutada.
         """
         self.console = console
         self.target = target
         self.profile = profile
+        self.verbose = verbose
         self._sym = symbols_for(console)
         self._live: Optional[Live] = None
         self._closed: List[Tuple[str, float, str]] = []   # (fase, segundos, estado)
         self._phase: Optional[str] = None
         self._started = time.monotonic()
         self._progress: Dict = {}
+        self._last_detail: Optional[str] = None
 
     # --- ciclo de vida
 
@@ -74,14 +77,28 @@ class PhaseView:
             self._live = None
 
     def __call__(self, progress: dict) -> None:
-        """Procesa un evento de avance (``status``, ``phase``, ``done``, ``total``)."""
+        """Procesa un evento de avance (``status``, ``phase``, ``done``, ``total``, ``detail``, ``events``)."""
         phase = progress.get("phase")
         if phase != self._phase and (phase is not None or self._phase is not None):
             self._close("ok")
             self._phase = phase
             self._started = time.monotonic()
+            self._last_detail = None
             if self._live is None and phase:
                 self.console.print(Text(f"{self._sym.sep} {phase_name(phase)}", style="muted"))
+        if self.verbose:
+            events = progress.get("events")
+            if events:
+                for event in events:
+                    message = event.get("message") if isinstance(event, dict) else str(event)
+                    if message:
+                        self._emit_detail(message)
+                        self._last_detail = message
+            else:
+                detail = progress.get("detail")
+                if detail and detail != self._last_detail:
+                    self._emit_detail(detail)
+                    self._last_detail = detail
         self._progress = progress
 
     def finish(self, status: str = "completed") -> None:
@@ -107,6 +124,13 @@ class PhaseView:
             self.console.print(self._done_line(self._phase, elapsed, state))
         self._phase = None
 
+    def _emit_detail(self, message: str) -> None:
+        line = Text(f"  {self._sym.sep} {message}", style="muted")
+        if self._live is not None:
+            self._live.console.print(line)
+        else:
+            self.console.print(line)
+
     def _done_line(self, phase: str, elapsed: float, state: str) -> Text:
         mark = {"ok": self._sym.ok, "warn": self._sym.warn, "err": self._sym.err}[state]
         return Text(f"{mark} {phase_name(phase):<15}{_seconds(elapsed)}", style=state)
@@ -117,13 +141,22 @@ class PhaseView:
         if self._phase is not None or not self._closed:
             total = self._progress.get("total") or 0
             done = self._progress.get("done") or 0
+            detail = self._progress.get("detail")
             row = Table.grid(padding=(0, 1))
             for _ in range(5):
                 row.add_column(no_wrap=True)
             bar = ProgressBar(total=total, completed=min(done, total), width=20) if total else ""
-            row.add_row(Spinner("dots", style="brand"), Text(f"{phase_name(self._phase):<14}"), bar,
-                        Text(f"{done}/{total}" if total else "", style="muted"),
-                        Text(_seconds(time.monotonic() - self._started), style="muted"))
+            cells: List = [
+                Spinner("dots", style="brand"),
+                Text(f"{phase_name(self._phase):<14}"),
+                bar,
+                Text(f"{done}/{total}" if total else "", style="muted"),
+                Text(_seconds(time.monotonic() - self._started), style="muted"),
+            ]
+            if detail:
+                row.add_column(no_wrap=True, overflow="ellipsis")
+                cells.append(Text(f"{self._sym.sep} {detail}", style="muted"))
+            row.add_row(*cells)
             lines.append(row)
         return Group(*lines)
 

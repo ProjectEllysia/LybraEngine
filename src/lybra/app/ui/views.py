@@ -128,6 +128,8 @@ def render_scan_status(console: Console, view: dict) -> None:
         parts.append(phase_name(progress.get("phase")))
         if progress.get("total"):
             parts.append(f"{progress.get('done') or 0}/{progress['total']}")
+        if progress.get("detail"):
+            parts.append(str(progress["detail"]))
     _line(console, f"{getattr(sym, glyph)} {f' {sym.sep} '.join(parts)}", style)
     error = view.get("error")
     if error:

@@ -123,6 +123,36 @@ def test_a_scan_goes_from_queued_to_a_camel_case_result(kb):
     service.shutdown()
 
 
+def test_scan_watch_streams_check_details_in_progress_events(kb):
+    from types import SimpleNamespace  # pylint: disable=import-outside-toplevel
+
+    class _DetailedPhases(_FakePhases):
+        def run_active_checks(self, target, services, **kwargs):
+            on_check = kwargs.get("on_check")
+            if on_check:
+                on_check(SimpleNamespace(id="hsts-missing"), services[0])
+                on_check(SimpleNamespace(id="git-config-exposure"), services[0])
+            return []
+
+    service = EngineService(kb, ServiceSettings(scan=ScanSettings(blocking_recheck_ports=0)),
+                            phases_factory=_DetailedPhases)
+    events = []
+    scan_id = _ok(service, "scan.start", {"target": "93.184.216.10", "profile": "standard"})["scanId"]
+    final = _ok(service, "scan.watch", {"scanId": scan_id}, events)
+
+    assert final["status"] == "completed"
+    messages = [
+        item["message"]
+        for event in events
+        for item in (event["data"].get("events") or ())
+    ]
+    assert "rastreo web" in messages
+    assert "80/tcp · hsts-missing" in messages
+    assert "80/tcp · git-config-exposure" in messages
+    assert "superficie API" in messages
+    service.shutdown()
+
+
 def test_an_unreachable_target_fails_with_its_reason(kb):
     service = _service(kb)
     _FakePhases.reachable = False
