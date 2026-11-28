@@ -299,8 +299,28 @@ def test_a_second_sync_while_one_runs_is_busy(kb):
     service._sync_lock.acquire()  # pylint: disable=protected-access
     try:
         assert _error(service, "kb.sync", {"source": "kev"}) == "busy"
+        assert _error(service, "kb.backfill", {"since": "2026-01-01"}) == "busy"
     finally:
         service._sync_lock.release()  # pylint: disable=protected-access
+    service.shutdown()
+
+
+def test_kb_backfill_operation(kb, monkeypatch):
+    from lybra.kb.sync import KnowledgeBaseSync
+    monkeypatch.setattr(KnowledgeBaseSync, "backfill_nvd", lambda self, start, end, api_key=None, on_progress=None: (
+        on_progress and on_progress({"phase": "backfill", "done": 1, "total": 1, "cves": 5}),
+        {"cves": 5, "cpeProductAliases": 1, "since": "2026-01-01", "until": "2026-01-02", "usedApiKey": False}
+    )[1])
+    service = _service(kb)
+    events = []
+    res = _ok(service, "kb.backfill", {"since": "2026-01-01", "until": "2026-01-02"}, events)
+    assert res["cves"] == 5
+    assert events
+
+    # Invalid params / dates
+    assert _error(service, "kb.backfill", {"since": "bad-date"}) == "invalid_params"
+    assert _error(service, "kb.backfill", {"since": "2026-01-01", "until": "bad-date"}) == "invalid_params"
+    assert _error(service, "kb.backfill", {"since": "2026-01-02", "until": "2026-01-01"}) == "invalid_params"
     service.shutdown()
 
 

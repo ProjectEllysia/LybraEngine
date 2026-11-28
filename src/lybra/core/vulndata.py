@@ -1361,12 +1361,16 @@ def fetch_nvd_page(
     return json.loads(_http_get(url, timeout, api_key=api_key))
 
 
+NVD_PAUSE_NO_KEY = 6.0
+NVD_PAUSE_WITH_KEY = 0.65
+
+
 def iter_nvd_pages(
     base_url: str,
     last_mod_start: Optional[str] = None,
     last_mod_end: Optional[str] = None,
     api_key: Optional[str] = None,
-    page_pause: float = 6.0,
+    page_pause: Optional[float] = None,
 ) -> Iterator[dict]:
     """Walk every page of the NVD CVE API and yield the individual CVE records.
 
@@ -1379,11 +1383,13 @@ def iter_nvd_pages(
         last_mod_start: Start of the "last modified" window (NVD date format).
         last_mod_end: End of the "last modified" window (NVD date format).
         api_key: Optional NVD API key for a higher rate limit.
-        page_pause: Seconds to wait between pages.
+        page_pause: Seconds to wait between pages; ``None`` chooses automatically
+            0.65s with an API key or 6.0s without one.
 
     Yields:
         Each element of every page's ``vulnerabilities`` list, in order.
     """
+    pause = (NVD_PAUSE_WITH_KEY if api_key else NVD_PAUSE_NO_KEY) if page_pause is None else page_pause
     start_index = 0
     while True:
         page = fetch_nvd_page(base_url, start_index, last_mod_start, last_mod_end, api_key)
@@ -1394,4 +1400,4 @@ def iter_nvd_pages(
         start_index += page.get("resultsPerPage", len(items))
         if start_index >= page.get("totalResults", 0):
             break
-        time.sleep(page_pause)
+        time.sleep(pause)

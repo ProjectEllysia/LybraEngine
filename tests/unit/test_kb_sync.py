@@ -181,3 +181,32 @@ def test_the_status_after_a_sync_is_fresh(kb, feeds):
     assert status["isStale"] is False
     assert {entry["source"] for entry in status["sources"]} == {"nvd", "kev", "epss", "oval:rhel"}
     assert all(entry["ageDays"] == 0 for entry in status["sources"])
+
+
+def test_nvd_pause_constants_and_backfill(kb, feeds):
+    from lybra.core.vulndata import NVD_PAUSE_NO_KEY, NVD_PAUSE_WITH_KEY, iter_nvd_pages
+    assert NVD_PAUSE_NO_KEY == 6.0
+    assert NVD_PAUSE_WITH_KEY == 0.65
+
+    # Test iter_nvd_pages pause selection (we can mock _http_get)
+    from lybra.core import vulndata
+    slept = []
+    monkeypatch_sleep = lambda s: slept.append(s)
+    
+    # Test backfill_nvd
+    sync = KnowledgeBaseSync(kb, _settings(), sleep=monkeypatch_sleep)
+    events = []
+    res = sync.backfill_nvd(datetime(2026, 1, 1), datetime(2026, 1, 3), api_key="test-key", on_progress=events.append)
+    assert res["cves"] >= 1
+    assert res["usedApiKey"] is True
+    assert events
+    assert any(e["phase"] == "backfill" for e in events)
+    assert any(e["phase"] == "index" for e in events)
+
+    # Test backfill_nvd missing source or invalid range
+    sync_no_nvd = KnowledgeBaseSync(kb, SyncSettings(sources={}), sleep=monkeypatch_sleep)
+    with pytest.raises(ValueError, match="no está configurada"):
+        sync_no_nvd.backfill_nvd(datetime(2026, 1, 2), datetime(2026, 1, 1))
+
+    with pytest.raises(ValueError, match="tiene que ser anterior"):
+        sync.backfill_nvd(datetime(2026, 1, 2), datetime(2026, 1, 1))

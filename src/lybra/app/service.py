@@ -229,6 +229,7 @@ class EngineService:
             "kb.unresolved": self._kb_unresolved,
             "kb.status": self._kb_status,
             "kb.sync": self._kb_sync,
+            "kb.backfill": self._kb_backfill,
         }
 
     # ------------------------------------------------------------ entrada
@@ -687,6 +688,40 @@ class EngineService:
         if not self.start_sync(source):
             raise ProtocolError(protocol.BUSY, "ya hay una sincronización en curso")
         return {"started": True, "source": source}
+
+    def _kb_backfill(self, params: dict, emit) -> dict:
+        """``kb.backfill``: realiza un llenado histórico de NVD emitiendo progreso."""
+        since_raw = params.get("since", "1999-01-01")
+        until_raw = params.get("until")
+        if not isinstance(since_raw, str):
+            raise ProtocolError(protocol.INVALID_PARAMS, "fecha inválida; usa YYYY-MM-DD")
+        try:
+            start = datetime.strptime(since_raw, "%Y-%m-%d")
+        except ValueError as error:
+            raise ProtocolError(protocol.INVALID_PARAMS, "fecha inválida; usa YYYY-MM-DD") from error
+        
+        end = None
+        if until_raw is not None:
+            if not isinstance(until_raw, str):
+                raise ProtocolError(protocol.INVALID_PARAMS, "fecha inválida; usa YYYY-MM-DD")
+            try:
+                end = datetime.strptime(until_raw, "%Y-%m-%d")
+            except ValueError as error:
+                raise ProtocolError(protocol.INVALID_PARAMS, "fecha inválida; usa YYYY-MM-DD") from error
+
+        if end is not None and start >= end:
+            raise ProtocolError(protocol.INVALID_PARAMS, "'since' tiene que ser anterior a 'until'")
+
+        if not self._sync_lock.acquire(blocking=False):  # pylint: disable=consider-using-with
+            raise ProtocolError(protocol.BUSY, "ya hay una sincronización en curso")
+        try:
+            return KnowledgeBaseSync(self.kb, self.settings.sync).backfill_nvd(
+                start, end, on_progress=lambda data: emit("progress", data)
+            )
+        except ValueError as error:
+            raise ProtocolError(protocol.INVALID_PARAMS, str(error)) from error
+        finally:
+            self._sync_lock.release()
 
     def start_sync(self, source: str = "all") -> bool:
         """
